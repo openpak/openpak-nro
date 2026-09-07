@@ -7,6 +7,9 @@ ifeq ($(strip $(DEVKITPRO)),)
 $(error DEVKITPRO is not set — build inside the devkitpro/devkita64 image)
 endif
 TOPDIR ?= $(CURDIR)
+# Must be set before the include: switch_rules falls back to libnx's placeholder icon
+# otherwise, and hbmenu would list this with the generic homebrew logo.
+APP_ICON := $(TOPDIR)/icon.jpg
 include $(DEVKITPRO)/libnx/switch_rules
 endif
 
@@ -50,7 +53,10 @@ export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 # Link with the C++ driver: these are C sources, but SDL2 drags in mesa (C++).
 export LD := $(CC)
-export APP_TITLE APP_AUTHOR APP_VERSION
+# elf2nro packs nothing unless it is told to: without these the NRO has no title, no icon in
+# hbmenu's list, and no romfs — which silently leaves out the CA the browser needs.
+export NROFLAGS := --nacp=$(CURDIR)/$(TARGET).nacp --icon=$(APP_ICON) --romfsdir=$(CURDIR)/$(ROMFS)
+export APP_TITLE APP_AUTHOR APP_VERSION APP_ICON
 export ROMFS
 export UI
 
