@@ -45,15 +45,43 @@ static bool prompt_ip(char *ip, size_t len) {
     return true;
 }
 
-static void draw(const char *ip, bool on, const char *status) {
+// dns_mitm reads the hosts files at boot, so offer the reboot here rather than sending the
+// user to the power menu.
+static void reboot_console(void) {
+    if (R_FAILED(spsmInitialize())) return;
+    spsmShutdown(true);   // true = reboot
+    spsmExit();
+}
+
+enum { IT_NETWORK, IT_ADDRESS, IT_REBOOT, IT_COUNT };
+
+static void draw(const char *ip, bool on, int sel, const char *status, bool confirming) {
+    const char *labels[IT_COUNT] = {"Network", "Server address", "Reboot console"};
+    char values[IT_COUNT][64];
+    snprintf(values[IT_NETWORK], sizeof(values[0]), "%s", on ? "OpenPak" : "Nintendo");
+    snprintf(values[IT_ADDRESS], sizeof(values[0]), "%s", ip);
+    values[IT_REBOOT][0] = '\0';
+
     consoleClear();
-    printf("\x1b[1;1H\x1b[36mOpenPak\x1b[0m — network selector for this console\n\n");
-    printf("  Routing to     : %s%s\x1b[0m\n", on ? "\x1b[32m" : "\x1b[33m", on ? "OpenPak" : "Nintendo");
-    printf("  Server address : %s\n", ip);
-    printf("  Host rules     : %d\n\n", openpak_hosts_count);
-    printf("  [A] switch to OpenPak    [B] back to Nintendo\n");
-    printf("  [X] change address       [+] exit\n\n");
-    if (status[0]) printf("  \x1b[33m%s\x1b[0m\n", status);
+    printf("\x1b[1;1H \x1b[36mOpenPak\x1b[0m  network selector%*s%s%s\x1b[0m\n\n",
+           28, "", on ? "\x1b[32m" : "\x1b[33m", on ? "[ OPENPAK ]" : "[ NINTENDO ]");
+
+    for (int i = 0; i < IT_COUNT; i++) {
+        bool cur = i == sel;
+        printf("  %s%s %-22s %s%s\x1b[0m\n",
+               cur ? "\x1b[7m" : "", cur ? ">" : " ",
+               labels[i], values[i],
+               cur ? "" : "");
+    }
+
+    printf("\n  %d host rules redirected\n\n", openpak_hosts_count);
+    if (confirming)
+        printf("  \x1b[33m%s\x1b[0m\n\n  [A] reboot now   [B] later\n", status[0] ? status : "Reboot to apply?");
+    else {
+        if (status[0]) printf("  \x1b[33m%s\x1b[0m\n\n", status);
+        else           printf("  Changes apply at boot.\n\n");
+        printf("  [Up/Down] move   [A] select   [B] exit\n");
+    }
     consoleUpdate(NULL);
 }
 
@@ -66,37 +94,59 @@ int main(int argc, char **argv) {
 
     char ip[64];
     load_ip(ip, sizeof(ip));
-    char status[160] = "";
+    char status[192] = "";
     bool on = openpak_enabled();
-    draw(ip, on, status);
+    bool confirm_reboot = false;
+    int sel = 0;
+    draw(ip, on, sel, status, confirm_reboot);
 
     while (appletMainLoop()) {
         padUpdate(&pad);
         u64 down = padGetButtonsDown(&pad);
-        if (down & HidNpadButton_Plus) break;
+        if (!down) { consoleUpdate(NULL); continue; }
 
         char err[128] = "";
-        if (down & HidNpadButton_A) {
-            if (openpak_enable(ip, err, sizeof(err)))
-                on = true, snprintf(status, sizeof(status), "OpenPak enabled — reboot to apply.");
-            else
-                snprintf(status, sizeof(status), "Failed: %s", err);
-        } else if (down & HidNpadButton_B) {
-            if (openpak_disable(err, sizeof(err)))
-                on = false, snprintf(status, sizeof(status), "Nintendo restored — reboot to apply.");
-            else
-                snprintf(status, sizeof(status), "Failed: %s", err);
-        } else if (down & HidNpadButton_X) {
-            if (prompt_ip(ip, sizeof(ip))) {
-                save_ip(ip);
-                snprintf(status, sizeof(status), on ? "Address saved — press A to re-apply." : "Address saved.");
-            }
-            consoleInit(NULL);   // the keyboard applet takes the framebuffer with it
-        } else {
-            consoleUpdate(NULL);
+        if (confirm_reboot) {
+            if (down & HidNpadButton_A) reboot_console();
+            else if (down & HidNpadButton_B) { confirm_reboot = false; status[0] = '\0'; }
+            else { consoleUpdate(NULL); continue; }
+            draw(ip, on, sel, status, confirm_reboot);
             continue;
         }
-        draw(ip, on, status);
+
+        if (down & (HidNpadButton_Up | HidNpadButton_StickLUp))        sel = (sel + IT_COUNT - 1) % IT_COUNT;
+        else if (down & (HidNpadButton_Down | HidNpadButton_StickLDown)) sel = (sel + 1) % IT_COUNT;
+        else if (down & HidNpadButton_B) break;
+        else if (down & HidNpadButton_Plus) break;
+        else if (down & HidNpadButton_A) {
+            switch (sel) {
+            case IT_NETWORK:
+                if (on ? openpak_disable(err, sizeof(err)) : openpak_enable(ip, err, sizeof(err))) {
+                    on = !on;
+                    confirm_reboot = true;
+                    snprintf(status, sizeof(status), on ? "Now pointing at %s.  Reboot to apply?"
+                                                        : "Nintendo's servers restored.  Reboot to apply?", ip);
+                } else {
+                    snprintf(status, sizeof(status), "Failed: %s", err);
+                }
+                break;
+            case IT_ADDRESS:
+                if (prompt_ip(ip, sizeof(ip))) {
+                    save_ip(ip);
+                    snprintf(status, sizeof(status), on ? "Address saved — select Network to re-apply."
+                                                        : "Address saved.");
+                }
+                consoleInit(NULL);   // the keyboard applet takes the framebuffer with it
+                break;
+            case IT_REBOOT:
+                confirm_reboot = true;
+                snprintf(status, sizeof(status), "Reboot the console now?");
+                break;
+            default:
+                break;
+            }
+        }
+        draw(ip, on, sel, status, confirm_reboot);
     }
 
     consoleExit(NULL);

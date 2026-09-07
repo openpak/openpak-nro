@@ -13,14 +13,18 @@ The server address lives in `/switch/openpak/server.txt` and is editable on the 
 the system keyboard (X). Changes take effect after a reboot, since `dns_mitm` reads the hosts
 files at boot.
 
-## Controls
+## Using it
 
-| Button | Action |
+A list, not a button chart:
+
+| Row | What selecting it does |
 |---|---|
-| A | Switch to OpenPak |
-| B | Back to Nintendo |
-| X | Change server address |
-| + | Exit |
+| **Network** | Flips between OpenPak and Nintendo, writes the change straight away, then asks whether to reboot |
+| **Server address** | Opens the system keyboard |
+| **Reboot console** | Reboots, for when you said "later" |
+
+Up/Down move, **A** selects, **B** exits. Every change is written the moment you select it;
+the reboot is what makes it live, since `dns_mitm` reads the hosts files at boot.
 
 ## Two builds
 
