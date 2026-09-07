@@ -71,6 +71,69 @@ void gfx_circle(int cx, int cy, int radius, Color c) {
     }
 }
 
+// Coverage of a stroke of half-width hw at distance d from the ideal edge: 1 inside, fading
+// over the last pixel. Cheap anti-aliasing, which curves at this size very much need.
+static inline float stroke_alpha(float d, float hw) {
+    float over = d - (hw - 0.5f);
+    if (over <= 0.0f) return 1.0f;
+    if (over >= 1.0f) return 0.0f;
+    return 1.0f - over;
+}
+
+void gfx_ring(int cx, int cy, int radius, int thickness, Color c) {
+    gfx_arc(cx, cy, radius, thickness, 0, 360, c);
+}
+
+void gfx_arc(int cx, int cy, int radius, int thickness, int start_deg, int end_deg, Color c) {
+    float hw = thickness / 2.0f;
+    int reach = radius + thickness;
+    for (int dy = -reach; dy <= reach; dy++) {
+        for (int dx = -reach; dx <= reach; dx++) {
+            float d = __builtin_sqrtf((float)(dx * dx + dy * dy));
+            float a = stroke_alpha(__builtin_fabsf(d - radius), hw);
+            if (a <= 0.0f) continue;
+            if (end_deg - start_deg < 360) {
+                // atan2 with y flipped: screen y grows downward, angles grow counter-clockwise.
+                float deg = __builtin_atan2f((float)-dy, (float)dx) * 57.2957795f;
+                if (deg < 0) deg += 360.0f;
+                float s = (float)start_deg, e = (float)end_deg;
+                bool inside = (s <= e) ? (deg >= s && deg <= e) : (deg >= s || deg <= e);
+                if (!inside) {
+                    // round caps: keep the pixel if it falls inside the end discs
+                    float sr = s * 0.0174532925f, er = e * 0.0174532925f;
+                    float sx = cx + radius * __builtin_cosf(sr), sy = cy - radius * __builtin_sinf(sr);
+                    float ex = cx + radius * __builtin_cosf(er), ey = cy - radius * __builtin_sinf(er);
+                    float px = (float)(cx + dx), py = (float)(cy + dy);
+                    float ds = (px - sx) * (px - sx) + (py - sy) * (py - sy);
+                    float de = (px - ex) * (px - ex) + (py - ey) * (py - ey);
+                    if (ds > hw * hw && de > hw * hw) continue;
+                }
+            }
+            Color p = {c.r, c.g, c.b, (u8)(c.a * a)};
+            gfx_pixel(cx + dx, cy + dy, p);
+        }
+    }
+}
+
+void gfx_circle_gradient(int cx, int cy, int radius, Color from, Color to) {
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            float d = __builtin_sqrtf((float)(dx * dx + dy * dy));
+            float a = stroke_alpha(d - radius + 0.5f, 0.5f);   // soft outer edge
+            if (d > radius + 1) continue;
+            if (a <= 0.0f) a = (d <= radius) ? 1.0f : 0.0f;
+            float t = (float)(dx + dy + 2 * radius) / (float)(4 * radius);   // diagonal ramp
+            Color p = {
+                (u8)(from.r + (to.r - from.r) * t),
+                (u8)(from.g + (to.g - from.g) * t),
+                (u8)(from.b + (to.b - from.b) * t),
+                (u8)(255 * a),
+            };
+            gfx_pixel(cx + dx, cy + dy, p);
+        }
+    }
+}
+
 void gfx_rounded(int x, int y, int w, int h, int radius, Color c) {
     if (radius * 2 > w) radius = w / 2;
     if (radius * 2 > h) radius = h / 2;

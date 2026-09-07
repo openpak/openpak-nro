@@ -10,6 +10,7 @@
 // Written from scratch against libnx: no code from any other homebrew.
 #include "gfx.h"
 #include "hosts.h"
+#include "logo.h"
 #include "text.h"
 
 #include <stdio.h>
@@ -90,12 +91,6 @@ static void reboot_console(void) {
     if (R_FAILED(spsmInitialize())) return;
     spsmShutdown(true);
     spsmExit();
-}
-
-// The site's icon: a rounded square with a white P.
-static void draw_mark(int x, int y, int size) {
-    gfx_rounded(x, y, size, size, size / 4, ACCENT);
-    txt_draw(x + size / 2, y + size / 4 - 2, PX_TITLE, TXT_CENTER, STRONG, "P");
 }
 
 // A button glyph and its caption, returning the width consumed so hints can flow.
