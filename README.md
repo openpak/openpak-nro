@@ -30,8 +30,8 @@ the reboot is what makes it live, since `dns_mitm` reads the hosts files at boot
 
 | Build | Size | Where it runs |
 |---|---|---|
-| `openpak.nro` (default, SDL) | ~8 MB | **Title takeover only.** Hold **R** while launching a game to enter hbmenu, then run it. Launched from the album applet, hbl aborts before loading it — SDL statically links mesa/EGL and the applet heap cannot hold it. |
-| `openpak-console.nro` (`UI=console`) | ~228 KB | Anywhere, applet mode included. Same toggle, text interface. |
+| `openpak.nro` (default) | ~1.7 MB | Anywhere — applet mode and title takeover. Drawn straight to the framebuffer with FreeType text: no SDL, no EGL, no mesa, which is what applet mode cannot provide. |
+| `openpak-console.nro` (`UI=console`) | ~228 KB | Anywhere. Same toggle, plain text, kept as a fallback. |
 
 ## Building
 
