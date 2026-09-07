@@ -20,15 +20,16 @@ APP_TITLE   := OpenPak
 APP_AUTHOR  := OpenPak
 APP_VERSION := 0.1.0
 
+PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
 ARCH    := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 CFLAGS  := -g -Wall -Wextra -O2 -ffunction-sections $(ARCH) $(DEFINES) \
-           `sdl2-config --cflags` -I$(PORTLIBS)/include/SDL2 \
-           -D__SWITCH__ $(INCLUDE)
+           $(shell $(PKGCONF) --cflags freetype2 2>/dev/null) -D__SWITCH__ $(INCLUDE)
 LDFLAGS  = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 # Let pkg-config resolve the SDL2/FreeType/HarfBuzz chain — hand-written link orders rot
 # every time a portlib changes what it depends on.
-PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
-LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs SDL2_ttf sdl2 2>/dev/null)) -lnx -lm
+# FreeType only: text is rasterised into the framebuffer, so there is no SDL/EGL/mesa here and
+# the NRO loads in applet mode.
+LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs freetype2 2>/dev/null)) -lnx -lm
 LIBDIRS := $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -38,14 +39,14 @@ export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
 # One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c $(if $(filter console,$(UI)),main.c,main_console.c)
+UI_SKIP  := hosts_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
 CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                   $(foreach dir,$(LIBDIRS),-I$(dir)/include) -I$(CURDIR)/$(BUILD)
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 # Link with the C++ driver: these are C sources, but SDL2 drags in mesa (C++).
-export LD := $(if $(filter console,$(UI)),$(CC),$(CXX))   # the SDL build drags in mesa (C++)
+export LD := $(CC)
 export APP_TITLE APP_AUTHOR APP_VERSION
 export UI
 
