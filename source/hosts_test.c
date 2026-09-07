@@ -96,12 +96,12 @@ int main(void) {
         FILE *m = fopen(meta, "wb"); fputs("stale", m); fclose(m);
 
         assert(!openpak_ca_installed());
-        assert(openpak_ca_install(err, sizeof(err)) == 2);      // both bundle paths
+        assert(openpak_ca_install(err, sizeof(err)) == 6);      // every bundle path the browser may read
         assert(openpak_ca_installed());
         assert(read_all(meta) == NULL);                         // stale cache cleared
 
         m = fopen(meta, "wb"); fputs("stale", m); fclose(m);
-        assert(openpak_ca_remove(err, sizeof(err)) == 2);
+        assert(openpak_ca_remove(err, sizeof(err)) == 6);
         assert(!openpak_ca_installed());
         assert(read_all(meta) == NULL);
     }
