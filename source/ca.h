@@ -9,3 +9,8 @@
 int openpak_ca_install(char *err, int errlen);
 int openpak_ca_remove(char *err, int errlen);
 bool openpak_ca_installed(void);
+
+// The web applet only skips certificate checking when Atmosphère has an NRO patch for the
+// browser build it is running. Without one, no CA we install is enough — so the tool reports
+// it rather than leaving the console spinning on a blank page.
+bool openpak_browser_patch_present(void);
