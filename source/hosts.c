@@ -18,6 +18,10 @@ const char *const openpak_hosts[] = {
     "capi.lp1.op2.nintendo.net",
     // per-title NPLN tenants
     "*.t.npln.srv.nintendo.net",
+    // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
+    // and never touch a Nintendo host, so without these the console still reaches Photon Cloud.
+    "*.photonengine.io",
+    "*.exitgames.com",
 };
 const int openpak_hosts_count = (int)(sizeof(openpak_hosts) / sizeof(openpak_hosts[0]));
 
