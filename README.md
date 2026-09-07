@@ -22,10 +22,18 @@ files at boot.
 | X | Change server address |
 | + | Exit |
 
+## Two builds
+
+| Build | Size | Where it runs |
+|---|---|---|
+| `openpak.nro` (default, SDL) | ~8 MB | **Title takeover only.** Hold **R** while launching a game to enter hbmenu, then run it. Launched from the album applet, hbl aborts before loading it — SDL statically links mesa/EGL and the applet heap cannot hold it. |
+| `openpak-console.nro` (`UI=console`) | ~228 KB | Anywhere, applet mode included. Same toggle, text interface. |
+
 ## Building
 
 ```sh
 podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make
+podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make UI=console
 make test    # host-side check of the toggle logic, no console needed
 ```
 

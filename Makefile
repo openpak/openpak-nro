@@ -10,7 +10,9 @@ TOPDIR ?= $(CURDIR)
 include $(DEVKITPRO)/libnx/switch_rules
 endif
 
-TARGET   := openpak
+# UI=sdl (styled, needs title takeover) or UI=console (text, loads in applet mode).
+UI       ?= sdl
+TARGET   := openpak$(if $(filter console,$(UI)),-console,)
 BUILD    := build
 SOURCES  := source
 INCLUDES := source
@@ -26,7 +28,7 @@ LDFLAGS  = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $
 # Let pkg-config resolve the SDL2/FreeType/HarfBuzz chain — hand-written link orders rot
 # every time a portlib changes what it depends on.
 PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
-LIBS    := $(shell $(PKGCONF) --static --libs SDL2_ttf sdl2 2>/dev/null) -lnx -lm
+LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs SDL2_ttf sdl2 2>/dev/null)) -lnx -lm
 LIBDIRS := $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -35,14 +37,17 @@ export TOPDIR   := $(CURDIR)
 export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
-CFILES   := $(filter-out hosts_test.c,$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
+# One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
+UI_SKIP  := hosts_test.c $(if $(filter console,$(UI)),main.c,main_console.c)
+CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                   $(foreach dir,$(LIBDIRS),-I$(dir)/include) -I$(CURDIR)/$(BUILD)
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 # Link with the C++ driver: these are C sources, but SDL2 drags in mesa (C++).
-export LD := $(CXX)   # SDL2 pulls in mesa/libEGL, which is C++ and needs libstdc++
+export LD := $(if $(filter console,$(UI)),$(CC),$(CXX))   # the SDL build drags in mesa (C++)
 export APP_TITLE APP_AUTHOR APP_VERSION
+export UI
 
 .PHONY: all clean test
 all: $(BUILD)
