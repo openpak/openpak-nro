@@ -185,9 +185,15 @@ static TTF_Font *open_font(PlFontData *d, int size) {
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
     plInitialize(PlServiceType_User);
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) return 1;
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) return 1;
     if (TTF_Init() != 0) { SDL_Quit(); return 1; }
-    SDL_GameControllerOpen(0);
+
+    // Input comes from libnx, not SDL: SDL_CONTROLLER_BUTTON_A is the *bottom* button in the
+    // Xbox layout it models, which on a Switch pad is physically B. Reading the pad directly
+    // means A is the button with an A on it.
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    PadState pad;
+    padInitializeDefault(&pad);
 
     SDL_Window *win = SDL_CreateWindow("openpak", 0, 0, W, H, 0);
     SDL_Renderer *ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED) : NULL;
@@ -224,60 +230,49 @@ int main(int argc, char **argv) {
         items[IT_NETWORK].color = on ? OK : WARN;
         snprintf(items[IT_ADDRESS].value, sizeof(items[IT_ADDRESS].value), "%s", ip);
 
-        SDL_Event e;
-        while (SDL_PollEvent(&e)) {
-            if (e.type != SDL_CONTROLLERBUTTONDOWN) continue;
-            char err[128] = "";
+        SDL_PumpEvents();          // keep SDL's video side alive; input is read below
+        padUpdate(&pad);
+        u64 down = padGetButtonsDown(&pad);
+        char err[128] = "";
 
-            if (confirm_reboot) {
-                if (e.cbutton.button == SDL_CONTROLLER_BUTTON_A) reboot_console();
-                else if (e.cbutton.button == SDL_CONTROLLER_BUTTON_B) { confirm_reboot = false; status[0] = '\0'; }
-                continue;
-            }
-
-            switch (e.cbutton.button) {
-            case SDL_CONTROLLER_BUTTON_DPAD_UP:
-                sel = (sel + IT_COUNT - 1) % IT_COUNT;
-                break;
-            case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-                sel = (sel + 1) % IT_COUNT;
-                break;
-            case SDL_CONTROLLER_BUTTON_A:
-                switch (sel) {
-                case IT_NETWORK:
-                    // Activating the row flips to the other network and applies immediately;
-                    // the only thing left to ask is the reboot.
-                    if (on ? openpak_disable(err, sizeof(err)) : openpak_enable(ip, err, sizeof(err))) {
-                        on = !on;
-                        confirm_reboot = true;
-                        snprintf(status, sizeof(status), on ? "Now pointing at %s.  Reboot to apply?"
-                                                            : "Nintendo's servers restored.  Reboot to apply?", ip);
-                    } else {
-                        snprintf(status, sizeof(status), "Failed: %s", err);
-                    }
-                    break;
-                case IT_ADDRESS:
-                    if (prompt_ip(ip, sizeof(ip))) {
-                        save_ip(ip);
-                        snprintf(status, sizeof(status), on ? "Address saved — select Network to re-apply."
-                                                            : "Address saved.");
-                    }
-                    break;
-                case IT_REBOOT:
+        if (confirm_reboot) {
+            if (down & HidNpadButton_A) reboot_console();
+            else if (down & HidNpadButton_B) { confirm_reboot = false; status[0] = '\0'; }
+        } else if (down & (HidNpadButton_Up | HidNpadButton_StickLUp)) {
+            sel = (sel + IT_COUNT - 1) % IT_COUNT;
+        } else if (down & (HidNpadButton_Down | HidNpadButton_StickLDown)) {
+            sel = (sel + 1) % IT_COUNT;
+        } else if (down & (HidNpadButton_B | HidNpadButton_Plus)) {
+            goto done;
+        } else if (down & HidNpadButton_A) {
+            switch (sel) {
+            case IT_NETWORK:
+                // Applied on selection; the reboot that makes it live is all that is left to ask.
+                if (on ? openpak_disable(err, sizeof(err)) : openpak_enable(ip, err, sizeof(err))) {
+                    on = !on;
                     confirm_reboot = true;
-                    snprintf(status, sizeof(status), "Reboot the console now?");
-                    break;
-                default:
-                    break;
+                    if (on) snprintf(status, sizeof(status), "Now pointing at %s.  Reboot to apply?", ip);
+                    else    snprintf(status, sizeof(status), "Nintendo's servers restored.  Reboot to apply?");
+                } else {
+                    snprintf(status, sizeof(status), "Failed: %s", err);
                 }
                 break;
-            case SDL_CONTROLLER_BUTTON_B:
-            case SDL_CONTROLLER_BUTTON_START:
-                goto done;
+            case IT_ADDRESS:
+                if (prompt_ip(ip, sizeof(ip))) {
+                    save_ip(ip);
+                    snprintf(status, sizeof(status), on ? "Address saved — select Network to re-apply."
+                                                        : "Address saved.");
+                }
+                break;
+            case IT_REBOOT:
+                confirm_reboot = true;
+                snprintf(status, sizeof(status), "Reboot the console now?");
+                break;
             default:
                 break;
             }
         }
+
         render(ren, &f, items, IT_COUNT, sel, on, status, confirm_reboot);
     }
 
