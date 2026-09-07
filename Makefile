@@ -19,6 +19,9 @@ INCLUDES := source
 APP_TITLE   := OpenPak
 APP_AUTHOR  := OpenPak
 APP_VERSION := 0.1.0
+# romfs carries the CA the console's browser must trust; there is no way to fetch it before
+# the console trusts us.
+ROMFS    := romfs
 
 PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
 ARCH    := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
@@ -48,6 +51,7 @@ export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 # Link with the C++ driver: these are C sources, but SDL2 drags in mesa (C++).
 export LD := $(CC)
 export APP_TITLE APP_AUTHOR APP_VERSION
+export ROMFS
 export UI
 
 .PHONY: all clean test
@@ -62,7 +66,7 @@ clean:
 
 # Runs on a PC, not the console: the toggle logic with a temp SD root.
 test:
-	@cc -o /tmp/openpak_hosts_test source/hosts.c source/hosts_test.c && /tmp/openpak_hosts_test
+	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/ca.c source/hosts_test.c && /tmp/openpak_hosts_test
 
 else
 DEPENDS := $(OFILES:.o=.d)
