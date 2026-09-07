@@ -11,7 +11,15 @@
 #define BROWSER_DIR   "/atmosphere/contents/0100000000000803"
 #define METADATA_PATH BROWSER_DIR "/romfs_metadata.bin"
 
+// The current browser reads its roots from romfs/browser and romfs/0/browser (firmware 22 uses
+// the numbered one); openssl_peer/cacerts.pem is the older layout and is written too so the
+// same NRO works on an older console. Both bundle names are replaced: RootCaEtc is the general
+// store and RootCaSdkAdditional the one the SDK consults.
 static const char *const bundles[] = {
+    BROWSER_DIR "/romfs/0/browser/RootCaEtc.pem",
+    BROWSER_DIR "/romfs/0/browser/RootCaSdkAdditional.pem",
+    BROWSER_DIR "/romfs/browser/RootCaEtc.pem",
+    BROWSER_DIR "/romfs/browser/RootCaSdkAdditional.pem",
     BROWSER_DIR "/romfs/openssl_peer/cacerts.pem",
     BROWSER_DIR "/romfs/nro/netfront/openssl_peer/cacerts.pem",
 };
