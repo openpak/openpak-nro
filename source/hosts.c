@@ -90,6 +90,7 @@ static char *neutralize_conflicts(const char *text) {
     char *out = malloc(cap);
     if (!out) return NULL;
     size_t n = 0;
+    out[0] = '\0';                 // an empty hosts file must come back empty, not uninitialised
     const char *p = text;
     while (*p) {
         const char *eol = strchr(p, '\n');
@@ -109,6 +110,37 @@ static char *neutralize_conflicts(const char *text) {
         p += len;
     }
     return out;
+}
+
+// Puts back every line we commented out, so choosing Nintendo leaves the file as it was
+// before this tool ever ran — including another tool's redirects.
+static char *restore_conflicts(const char *text) {
+    size_t cap = strlen(text) + 1;
+    char *out = malloc(cap);
+    if (!out) return NULL;
+    size_t n = 0, marker = strlen(OPENPAK_DISABLED);
+    const char *p = text;
+    while (*p) {
+        const char *eol = strchr(p, '\n');
+        size_t len = eol ? (size_t)(eol - p + 1) : strlen(p);
+        if (len >= marker && strncmp(p, OPENPAK_DISABLED, marker) == 0) {
+            memcpy(out + n, p + marker, len - marker);
+            n += len - marker;
+        } else {
+            memcpy(out + n, p, len);
+            n += len;
+        }
+        p += len;
+    }
+    out[n] = '\0';
+    return out;
+}
+
+// True when nothing but blank lines is left, i.e. the file holds nothing we did not add.
+static bool only_whitespace(const char *text) {
+    for (; *text; text++)
+        if (*text != ' ' && *text != '\t' && *text != '\r' && *text != '\n') return false;
+    return true;
 }
 
 // Returns a copy of text with our marked block removed. Caller frees.
@@ -196,11 +228,18 @@ bool openpak_disable(char *err, int errlen) {
         char *stripped = strip_block(text);
         free(text);
         if (!stripped) { snprintf(err, errlen, "out of memory"); return false; }
-        // Choosing Nintendo means nothing redirects these names any more — not ours, and not
-        // whatever else was in the file. DNS then resolves them the way it always would.
-        char *base = neutralize_conflicts(stripped);
+        // A full revert: our block goes, and the lines we commented out come back exactly as
+        // they were. Whatever the console did before this tool ran, it does again.
+        char *base = restore_conflicts(stripped);
         free(stripped);
         if (!base) { snprintf(err, errlen, "out of memory"); return false; }
+
+        // If nothing but our own additions was ever in there, take the file with us.
+        if (only_whitespace(base)) {
+            free(base);
+            remove(hosts_path(i));
+            continue;
+        }
         bool ok = write_atomic(hosts_path(i), base, err, errlen);
         free(base);
         if (!ok) return false;
