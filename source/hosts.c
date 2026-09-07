@@ -57,6 +57,60 @@ static char *slurp(const char *path, long *len_out) {
     return buf;
 }
 
+// True when a hosts line redirects one of the names we care about. Wildcards match by their
+// suffix, the same way dns_mitm reads them.
+static bool line_targets_ours(const char *line) {
+    while (*line == ' ' || *line == '\t') line++;
+    if (*line == '#' || *line == '\0' || *line == '\r' || *line == '\n') return false;
+    const char *host = line;
+    while (*host && *host != ' ' && *host != '\t') host++;     // skip the address
+    while (*host == ' ' || *host == '\t') host++;
+    if (!*host) return false;
+
+    for (int i = 0; i < openpak_hosts_count; i++) {
+        const char *pat = openpak_hosts[i];
+        if (pat[0] == '*') {
+            const char *suffix = pat + 1;                       // ".example.com"
+            size_t hl = strcspn(host, " \t\r\n"), sl = strlen(suffix);
+            if (hl >= sl && strncmp(host + hl - sl, suffix, sl) == 0) return true;
+        } else if (strncmp(host, pat, strlen(pat)) == 0) {
+            char after = host[strlen(pat)];
+            if (after == '\0' || after == ' ' || after == '\t' || after == '\r' || after == '\n') return true;
+        }
+    }
+    return false;
+}
+
+// Comments out anyone else's redirect for our hostnames, so choosing a network actually
+// decides where the console goes: removing our block alone would leave another tool's rules
+// in force. ponytail: commented, not deleted — the line stays visible and reversible, and we
+// never pin Nintendo's own IPs, which rotate.
+static char *neutralize_conflicts(const char *text) {
+    size_t cap = strlen(text) * 2 + 64;
+    char *out = malloc(cap);
+    if (!out) return NULL;
+    size_t n = 0;
+    const char *p = text;
+    while (*p) {
+        const char *eol = strchr(p, '\n');
+        size_t len = eol ? (size_t)(eol - p + 1) : strlen(p);
+        char line[512];
+        size_t copy = len < sizeof(line) - 1 ? len : sizeof(line) - 1;
+        memcpy(line, p, copy);
+        line[copy] = '\0';
+
+        if (line_targets_ours(line)) {
+            n += (size_t)snprintf(out + n, cap - n, "%s%s", OPENPAK_DISABLED, line);
+        } else {
+            memcpy(out + n, p, len);
+            n += len;
+        }
+        out[n] = '\0';
+        p += len;
+    }
+    return out;
+}
+
 // Returns a copy of text with our marked block removed. Caller frees.
 static char *strip_block(const char *text) {
     if (!text) return NULL;
@@ -108,8 +162,11 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
     for (int i = 0; i < hosts_files_count; i++) {
         long len = 0;
         char *text = slurp(hosts_path(i), &len);
-        char *base = strip_block(text ? text : "");
+        char *stripped = strip_block(text ? text : "");
         free(text);
+        if (!stripped) { snprintf(err, errlen, "out of memory"); return false; }
+        char *base = neutralize_conflicts(stripped);
+        free(stripped);
         if (!base) { snprintf(err, errlen, "out of memory"); return false; }
 
         // block = existing content (ours removed) + a fresh block
@@ -136,8 +193,13 @@ bool openpak_disable(char *err, int errlen) {
         long len = 0;
         char *text = slurp(hosts_path(i), &len);
         if (!text) continue;               // nothing there = nothing to undo
-        char *base = strip_block(text);
+        char *stripped = strip_block(text);
         free(text);
+        if (!stripped) { snprintf(err, errlen, "out of memory"); return false; }
+        // Choosing Nintendo means nothing redirects these names any more — not ours, and not
+        // whatever else was in the file. DNS then resolves them the way it always would.
+        char *base = neutralize_conflicts(stripped);
+        free(stripped);
         if (!base) { snprintf(err, errlen, "out of memory"); return false; }
         bool ok = write_atomic(hosts_path(i), base, err, errlen);
         free(base);

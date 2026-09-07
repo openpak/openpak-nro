@@ -5,6 +5,8 @@
 
 #define OPENPAK_BEGIN "# >>> openpak >>>"
 #define OPENPAK_END   "# <<< openpak <<<"
+// Prefix stamped on someone else's redirect for a hostname we manage.
+#define OPENPAK_DISABLED "#openpak-off# "
 
 // Every name the OpenPak Switch adapter answers for. Wildcards are dns_mitm syntax.
 extern const char *const openpak_hosts[];
