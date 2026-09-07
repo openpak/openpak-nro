@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 #include <sys/stat.h>
 
 // The web applet's title, and the two bundles it reads: firmware picks one or the other
@@ -105,4 +106,20 @@ bool openpak_ca_installed(void) {
         if (f) { fclose(f); return true; }
     }
     return false;
+}
+
+#define BROWSER_PATCH_DIR "/atmosphere/nro_patches/disable_browser_ca_verification"
+
+bool openpak_browser_patch_present(void) {
+    char dir[320];
+    path_under_root(dir, sizeof(dir), BROWSER_PATCH_DIR);
+    DIR *d = opendir(dir);
+    if (!d) return false;
+    bool found = false;
+    for (struct dirent *e; (e = readdir(d)) != NULL;) {
+        const char *dot = strrchr(e->d_name, '.');
+        if (dot && strcmp(dot, ".ips") == 0) { found = true; break; }
+    }
+    closedir(d);
+    return found;
 }
