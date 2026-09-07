@@ -12,15 +12,16 @@
 
 #define CONFIG_DIR  "/switch/openpak"
 #define CONFIG_PATH CONFIG_DIR "/server.txt"
-#define DEFAULT_IP  "10.0.0.1"
+// No default address: there is no IP that is right for someone else's network, and a
+// plausible-looking wrong one is worse than an obvious blank.
+#define UNSET_LABEL "Not set"
 
 static void load_ip(char *ip, size_t len) {
-    snprintf(ip, len, "%s", DEFAULT_IP);
+    ip[0] = '\0';
     FILE *f = fopen(CONFIG_PATH, "rb");
     if (!f) return;
     if (fgets(ip, (int)len, f)) ip[strcspn(ip, "\r\n")] = '\0';
     fclose(f);
-    if (!ip[0]) snprintf(ip, len, "%s", DEFAULT_IP);
 }
 
 static void save_ip(const char *ip) {
@@ -59,7 +60,7 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
     const char *labels[IT_COUNT] = {"Network", "Server address", "Reboot console"};
     char values[IT_COUNT][64];
     snprintf(values[IT_NETWORK], sizeof(values[0]), "%s", on ? "OpenPak" : "Nintendo");
-    snprintf(values[IT_ADDRESS], sizeof(values[0]), "%s", ip);
+    snprintf(values[IT_ADDRESS], sizeof(values[0]), "%s", ip[0] ? ip : UNSET_LABEL);
     values[IT_REBOOT][0] = '\0';
 
     consoleClear();
@@ -121,6 +122,11 @@ int main(int argc, char **argv) {
         else if (down & HidNpadButton_A) {
             switch (sel) {
             case IT_NETWORK:
+                if (!on && !ip[0]) {
+                    sel = IT_ADDRESS;
+                    snprintf(status, sizeof(status), "Set the server address first.");
+                    break;
+                }
                 if (on ? openpak_disable(err, sizeof(err)) : openpak_enable(ip, err, sizeof(err))) {
                     on = !on;
                     confirm_reboot = true;

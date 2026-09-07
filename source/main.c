@@ -19,7 +19,9 @@
 
 #define CONFIG_DIR  "/switch/openpak"
 #define CONFIG_PATH CONFIG_DIR "/server.txt"
-#define DEFAULT_IP  "10.0.0.1"
+// No default address: there is no IP that is right for someone else's network, and a
+// plausible-looking wrong one is worse than an obvious blank.
+#define UNSET_LABEL "Not set"
 
 #define W 1280
 #define H 720
@@ -40,12 +42,11 @@ static const SDL_Color WARN_BG = {0x2c, 0x24, 0x14, 255};
 typedef struct { TTF_Font *display, *title, *body, *label, *mono; } Fonts;
 
 static void load_ip(char *ip, size_t len) {
-    snprintf(ip, len, "%s", DEFAULT_IP);
+    ip[0] = '\0';
     FILE *f = fopen(CONFIG_PATH, "rb");
     if (!f) return;
     if (fgets(ip, (int)len, f)) ip[strcspn(ip, "\r\n")] = '\0';
     fclose(f);
-    if (!ip[0]) snprintf(ip, len, "%s", DEFAULT_IP);
 }
 
 static void save_ip(const char *ip) {
@@ -228,7 +229,8 @@ int main(int argc, char **argv) {
     while (appletMainLoop()) {
         snprintf(items[IT_NETWORK].value, sizeof(items[IT_NETWORK].value), "%s", on ? "OpenPak" : "Nintendo");
         items[IT_NETWORK].color = on ? OK : WARN;
-        snprintf(items[IT_ADDRESS].value, sizeof(items[IT_ADDRESS].value), "%s", ip);
+        snprintf(items[IT_ADDRESS].value, sizeof(items[IT_ADDRESS].value), "%s", ip[0] ? ip : UNSET_LABEL);
+        items[IT_ADDRESS].color = ip[0] ? INK : WARN;
 
         SDL_PumpEvents();          // keep SDL's video side alive; input is read below
         padUpdate(&pad);
@@ -247,6 +249,13 @@ int main(int argc, char **argv) {
         } else if (down & HidNpadButton_A) {
             switch (sel) {
             case IT_NETWORK:
+                if (!on && !ip[0]) {
+                    // Nothing to point the console at yet: send the user to the keyboard
+                    // rather than writing rules for an address they never chose.
+                    sel = IT_ADDRESS;
+                    snprintf(status, sizeof(status), "Set the server address first.");
+                    break;
+                }
                 // Applied on selection; the reboot that makes it live is all that is left to ask.
                 if (on ? openpak_disable(err, sizeof(err)) : openpak_enable(ip, err, sizeof(err))) {
                     on = !on;
