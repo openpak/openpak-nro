@@ -14,3 +14,8 @@ bool openpak_ca_installed(void);
 // browser build it is running. Without one, no CA we install is enough — so the tool reports
 // it rather than leaving the console spinning on a blank page.
 bool openpak_browser_patch_present(void);
+
+// Installs (or removes) the Atmosphère patch sets shipped in this NRO, returning the number of
+// patch files written. The browser patch set is what lets the link page load at all.
+int openpak_patches_install(void);
+int openpak_patches_remove(void);

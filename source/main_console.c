@@ -135,8 +135,8 @@ int main(int argc, char **argv) {
             bool again = (want_openpak == on);
             if (want_openpak ? openpak_enable(ip, err, sizeof(err))
                              : openpak_disable(err, sizeof(err))) {
-                if (want_openpak) openpak_ca_install(err, sizeof(err));
-                else              openpak_ca_remove(err, sizeof(err));
+                if (want_openpak) { openpak_ca_install(err, sizeof(err)); openpak_patches_install(); }
+                else               { openpak_ca_remove(err, sizeof(err));  openpak_patches_remove();  }
                 on = want_openpak;
                 confirm_reboot = true;
                 snprintf(status, sizeof(status), again ? "%s re-applied.  Reboot to apply?"
