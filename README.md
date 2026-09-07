@@ -27,11 +27,15 @@ the reboot that applies it is offered right there. The server address is built i
 has to look one up — and can still be overridden with `-DOPENPAK_SERVER="1.2.3.4"` at build
 time or a line in `/switch/openpak/server.txt`.
 
-Choosing **Nintendo** removes OpenPak's rules *and* comments out anyone else's redirect for
-the same hostnames (they get an `#openpak-off#` prefix, so they stay visible and reversible).
-That way the choice actually decides where the console goes instead of falling through to
-another tool's leftovers. Nintendo's own addresses are never written down: they rotate, and
-DNS resolves them correctly on its own once nothing overrides them.
+Choosing **OpenPak** writes the rules and comments out anyone else's redirect for the same
+hostnames (an `#openpak-off#` prefix), so the choice actually decides where the console goes
+instead of falling through to another tool's leftovers.
+
+Choosing **Nintendo** is a full revert: our block goes, every line we commented comes back
+exactly as it was, and if the hosts file contained nothing but our own additions it is
+deleted. The console is left as if this tool had never run. Nintendo's own addresses are
+never written down — they rotate, and DNS resolves them correctly once nothing overrides
+them.
 
 ## Two builds
 
