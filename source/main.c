@@ -208,17 +208,19 @@ int main(int argc, char **argv) {
             break;
         } else if (down & HidNpadButton_A) {
             bool want_openpak = (sel == IT_OPENPAK);
-            if (want_openpak == on) {
-                snprintf(status, sizeof(status), "Already using %s.", item_labels[sel]);
-            } else if (want_openpak ? openpak_enable(ip, err, sizeof(err))
-                                    : openpak_disable(err, sizeof(err))) {
+            // Selecting the network already in use re-applies it rather than refusing: that is
+            // how a console picks up a new CA or new host rules after the tool is updated.
+            bool again = (want_openpak == on);
+            if (want_openpak ? openpak_enable(ip, err, sizeof(err))
+                             : openpak_disable(err, sizeof(err))) {
                 // Host rules alone are not enough: the browser keeps its own CA bundle, and
                 // without ours the link page never loads.
                 if (want_openpak) openpak_ca_install(err, sizeof(err));
                 else              openpak_ca_remove(err, sizeof(err));
                 on = want_openpak;
                 confirm_reboot = true;
-                snprintf(status, sizeof(status), "Switched to %s.  Reboot to apply?", item_labels[sel]);
+                snprintf(status, sizeof(status), again ? "%s re-applied.  Reboot to apply?"
+                                                       : "Switched to %s.  Reboot to apply?", item_labels[sel]);
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
             }
