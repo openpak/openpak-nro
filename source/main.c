@@ -215,22 +215,19 @@ int main(int argc, char **argv) {
                              : openpak_disable(err, sizeof(err))) {
                 // Host rules alone are not enough: the browser keeps its own CA bundle, and
                 // without ours the link page never loads.
-                int bundles = 0;
-                if (want_openpak) bundles = openpak_ca_install(err, sizeof(err));
-                else              bundles = openpak_ca_remove(err, sizeof(err));
+                int bundles = 0, patches = 0;
+                if (want_openpak) {
+                    bundles = openpak_ca_install(err, sizeof(err));
+                    patches = openpak_patches_install();
+                } else {
+                    bundles = openpak_ca_remove(err, sizeof(err));
+                    patches = openpak_patches_remove();
+                }
                 on = want_openpak;
                 confirm_reboot = true;
-                if (want_openpak && !openpak_browser_patch_present()) {
-                    // Say so plainly: everything else can be right and the link page will still
-                    // never load without the browser's own patch.
-                    snprintf(status, sizeof(status),
-                             "Applied (%d CA files), but the browser patch is missing — the link page will not load.",
-                             bundles);
-                } else {
-                    snprintf(status, sizeof(status), again ? "%s re-applied (%d CA files).  Reboot to apply?"
-                                                           : "Switched to %s (%d CA files).  Reboot to apply?",
-                             item_labels[sel], bundles);
-                }
+                snprintf(status, sizeof(status), again ? "%s re-applied — %d CA files, %d patches.  Reboot?"
+                                                       : "Switched to %s — %d CA files, %d patches.  Reboot?",
+                         item_labels[sel], bundles, patches);
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
             }
