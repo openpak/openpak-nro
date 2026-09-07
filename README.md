@@ -15,16 +15,23 @@ files at boot.
 
 ## Using it
 
-A list, not a button chart:
+Two entries, one choice:
 
-| Row | What selecting it does |
-|---|---|
-| **Network** | Flips between OpenPak and Nintendo, writes the change straight away, then asks whether to reboot |
-| **Server address** | Opens the system keyboard |
-| **Reboot console** | Reboots, for when you said "later" |
+```
+  Nintendo                       Active
+  OpenPak
+```
 
-Up/Down move, **A** selects, **B** exits. Every change is written the moment you select it;
-the reboot is what makes it live, since `dns_mitm` reads the hosts files at boot.
+Up/Down, **A** to pick, **B** to leave. The change is written the moment you select it and
+the reboot that applies it is offered right there. The server address is built in — nobody
+has to look one up — and can still be overridden with `-DOPENPAK_SERVER="1.2.3.4"` at build
+time or a line in `/switch/openpak/server.txt`.
+
+Choosing **Nintendo** removes OpenPak's rules *and* comments out anyone else's redirect for
+the same hostnames (they get an `#openpak-off#` prefix, so they stay visible and reversible).
+That way the choice actually decides where the console goes instead of falling through to
+another tool's leftovers. Nintendo's own addresses are never written down: they rotate, and
+DNS resolves them correctly on its own once nothing overrides them.
 
 ## Two builds
 

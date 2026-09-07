@@ -53,6 +53,27 @@ int main(void) {
     assert(strstr(after, "192.168.1.50 example.invalid"));     // console back to how it was
     assert(!strstr(after, "nintendo.com"));
 
+    // Someone else's redirect for the same names must not survive either choice: otherwise
+    // "Nintendo" would still send the console to whatever that other tool points at.
+    f = fopen(file, "wb");
+    fputs("192.168.1.50 example.invalid\n"
+          "10.9.9.9 accounts.nintendo.com\n"
+          "10.9.9.9 fro-3.hac.lp1.penne.srv.nintendo.net\n", f);
+    fclose(f);
+
+    assert(openpak_enable("10.0.0.7", err, sizeof(err)));
+    after = read_all(file);
+    assert(strstr(after, OPENPAK_DISABLED "10.9.9.9 accounts.nintendo.com"));   // exact name
+    assert(strstr(after, OPENPAK_DISABLED "10.9.9.9 fro-3.hac"));               // wildcard match
+    assert(strstr(after, "192.168.1.50 example.invalid"));                      // unrelated line kept
+    assert(strstr(after, "10.0.0.7 accounts.nintendo.com"));
+
+    assert(openpak_disable(err, sizeof(err)));
+    after = read_all(file);
+    assert(strstr(after, OPENPAK_DISABLED "10.9.9.9 accounts.nintendo.com"));   // still neutralised
+    assert(!strstr(after, "\n10.9.9.9 accounts.nintendo.com"));                 // nothing live
+    assert(strstr(after, "192.168.1.50 example.invalid"));
+
     printf("hosts toggle: all checks passed\n");
     return 0;
 }

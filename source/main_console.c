@@ -12,15 +12,21 @@
 
 #define CONFIG_DIR  "/switch/openpak"
 #define CONFIG_PATH CONFIG_DIR "/server.txt"
-// No default address: there is no IP that is right for someone else's network, and a
-// plausible-looking wrong one is worse than an obvious blank.
-#define UNSET_LABEL "Not set"
+// OpenPak's server, baked in: the point of this tool is that nobody has to look an address
+// up. Override at build time with -DOPENPAK_SERVER=\"1.2.3.4\", or on the console with X.
+#ifndef OPENPAK_SERVER
+#define OPENPAK_SERVER "145.241.199.19"
+#endif
 
 static void load_ip(char *ip, size_t len) {
-    ip[0] = '\0';
+    snprintf(ip, len, "%s", OPENPAK_SERVER);
     FILE *f = fopen(CONFIG_PATH, "rb");
-    if (!f) return;
-    if (fgets(ip, (int)len, f)) ip[strcspn(ip, "\r\n")] = '\0';
+    if (!f) return;                       // never configured: the built-in address stands
+    char saved[64] = {0};
+    if (fgets(saved, sizeof(saved), f)) {
+        saved[strcspn(saved, "\r\n")] = '\0';
+        if (saved[0]) snprintf(ip, len, "%s", saved);
+    }
     fclose(f);
 }
 
@@ -32,7 +38,8 @@ static void save_ip(const char *ip) {
     fclose(f);
 }
 
-static bool prompt_ip(char *ip, size_t len) {
+// Kept for the config file and the build-time define; the interface never asks.
+__attribute__((unused)) static bool prompt_ip(char *ip, size_t len) {
     SwkbdConfig kbd;
     if (R_FAILED(swkbdCreate(&kbd, 0))) return false;
     swkbdConfigMakePresetDefault(&kbd);
@@ -54,14 +61,14 @@ static void reboot_console(void) {
     spsmExit();
 }
 
-enum { IT_NETWORK, IT_ADDRESS, IT_REBOOT, IT_COUNT };
+// The whole tool is one choice: which network this console talks to.
+enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 
 static void draw(const char *ip, bool on, int sel, const char *status, bool confirming) {
-    const char *labels[IT_COUNT] = {"Network", "Server address", "Reboot console"};
+    const char *labels[IT_COUNT] = {"Nintendo", "OpenPak"};
     char values[IT_COUNT][64];
-    snprintf(values[IT_NETWORK], sizeof(values[0]), "%s", on ? "OpenPak" : "Nintendo");
-    snprintf(values[IT_ADDRESS], sizeof(values[0]), "%s", ip[0] ? ip : UNSET_LABEL);
-    values[IT_REBOOT][0] = '\0';
+    for (int i = 0; i < IT_COUNT; i++)
+        snprintf(values[i], sizeof(values[0]), "%s", ((i == IT_OPENPAK) == on) ? "Active" : "");
 
     consoleClear();
     printf("\x1b[1;1H \x1b[36mOpenPak\x1b[0m  network selector%*s%s%s\x1b[0m\n\n",
@@ -98,7 +105,7 @@ int main(int argc, char **argv) {
     char status[192] = "";
     bool on = openpak_enabled();
     bool confirm_reboot = false;
-    int sel = 0;
+    int sel = on ? IT_OPENPAK : IT_NINTENDO;
     draw(ip, on, sel, status, confirm_reboot);
 
     while (appletMainLoop()) {
@@ -120,36 +127,17 @@ int main(int argc, char **argv) {
         else if (down & HidNpadButton_B) break;
         else if (down & HidNpadButton_Plus) break;
         else if (down & HidNpadButton_A) {
-            switch (sel) {
-            case IT_NETWORK:
-                if (!on && !ip[0]) {
-                    sel = IT_ADDRESS;
-                    snprintf(status, sizeof(status), "Set the server address first.");
-                    break;
-                }
-                if (on ? openpak_disable(err, sizeof(err)) : openpak_enable(ip, err, sizeof(err))) {
-                    on = !on;
-                    confirm_reboot = true;
-                    snprintf(status, sizeof(status), on ? "Now pointing at %s.  Reboot to apply?"
-                                                        : "Nintendo's servers restored.  Reboot to apply?", ip);
-                } else {
-                    snprintf(status, sizeof(status), "Failed: %s", err);
-                }
-                break;
-            case IT_ADDRESS:
-                if (prompt_ip(ip, sizeof(ip))) {
-                    save_ip(ip);
-                    snprintf(status, sizeof(status), on ? "Address saved — select Network to re-apply."
-                                                        : "Address saved.");
-                }
-                consoleInit(NULL);   // the keyboard applet takes the framebuffer with it
-                break;
-            case IT_REBOOT:
+            bool want_openpak = (sel == IT_OPENPAK);
+            if (want_openpak == on) {
+                snprintf(status, sizeof(status), "Already using %s.", want_openpak ? "OpenPak" : "Nintendo");
+            } else if (want_openpak ? openpak_enable(ip, err, sizeof(err))
+                                    : openpak_disable(err, sizeof(err))) {
+                on = want_openpak;
                 confirm_reboot = true;
-                snprintf(status, sizeof(status), "Reboot the console now?");
-                break;
-            default:
-                break;
+                snprintf(status, sizeof(status), "Switched to %s.  Reboot to apply?",
+                         want_openpak ? "OpenPak" : "Nintendo");
+            } else {
+                snprintf(status, sizeof(status), "Failed: %s", err);
             }
         }
         draw(ip, on, sel, status, confirm_reboot);
