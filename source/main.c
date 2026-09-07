@@ -9,6 +9,7 @@
 //
 // Written from scratch against libnx: no code from any other homebrew.
 #include "gfx.h"
+#include "ca.h"
 #include "hosts.h"
 #include "logo.h"
 #include "text.h"
@@ -175,6 +176,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+    romfsInit();          // the CA bundle we ship lives in romfs:/
     plInitialize(PlServiceType_User);
     if (!gfx_init()) { plExit(); return 1; }
     if (!txt_init()) { gfx_exit(); plExit(); return 1; }
@@ -210,6 +212,10 @@ int main(int argc, char **argv) {
                 snprintf(status, sizeof(status), "Already using %s.", item_labels[sel]);
             } else if (want_openpak ? openpak_enable(ip, err, sizeof(err))
                                     : openpak_disable(err, sizeof(err))) {
+                // Host rules alone are not enough: the browser keeps its own CA bundle, and
+                // without ours the link page never loads.
+                if (want_openpak) openpak_ca_install(err, sizeof(err));
+                else              openpak_ca_remove(err, sizeof(err));
                 on = want_openpak;
                 confirm_reboot = true;
                 snprintf(status, sizeof(status), "Switched to %s.  Reboot to apply?", item_labels[sel]);
@@ -223,5 +229,6 @@ int main(int argc, char **argv) {
     txt_exit();
     gfx_exit();
     plExit();
+    romfsExit();
     return 0;
 }

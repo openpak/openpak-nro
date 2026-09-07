@@ -3,6 +3,7 @@
 // Same toggle, no SDL: libnx's console renders straight to the framebuffer, so the NRO is
 // a few hundred KB and loads in applet mode, where the SDL build needs the memory of a
 // full title takeover.
+#include "ca.h"
 #include "hosts.h"
 
 #include <stdio.h>
@@ -95,6 +96,7 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+    romfsInit();          // the CA bundle we ship lives in romfs:/
     consoleInit(NULL);
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     PadState pad;
@@ -132,6 +134,8 @@ int main(int argc, char **argv) {
                 snprintf(status, sizeof(status), "Already using %s.", want_openpak ? "OpenPak" : "Nintendo");
             } else if (want_openpak ? openpak_enable(ip, err, sizeof(err))
                                     : openpak_disable(err, sizeof(err))) {
+                if (want_openpak) openpak_ca_install(err, sizeof(err));
+                else              openpak_ca_remove(err, sizeof(err));
                 on = want_openpak;
                 confirm_reboot = true;
                 snprintf(status, sizeof(status), "Switched to %s.  Reboot to apply?",
@@ -144,5 +148,6 @@ int main(int argc, char **argv) {
     }
 
     consoleExit(NULL);
+    romfsExit();
     return 0;
 }

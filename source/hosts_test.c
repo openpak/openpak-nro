@@ -1,5 +1,6 @@
 // Host-side check for the toggle logic — build and run on a PC, no console needed:
 //   cc -DOPENPAK_TEST -o /tmp/hosts_test source/hosts.c source/hosts_test.c && /tmp/hosts_test
+#include "ca.h"
 #include "hosts.h"
 #include <assert.h>
 #include <stdio.h>
@@ -83,6 +84,27 @@ int main(void) {
     assert(read_all(file) != NULL);
     assert(openpak_disable(err, sizeof(err)));
     assert(read_all(file) == NULL);
+
+    // The browser keeps its own CA bundle; installing and removing it must be as reversible
+    // as the host rules, and must clear the stale romfs layout cache both ways.
+    {
+        char meta[320];
+        snprintf(meta, sizeof(meta), "%s/atmosphere/contents/0100000000000803/romfs_metadata.bin", root);
+        char dir[320];
+        snprintf(dir, sizeof(dir), "%s/atmosphere/contents", root);            mkdir(dir, 0755);
+        snprintf(dir, sizeof(dir), "%s/atmosphere/contents/0100000000000803", root); mkdir(dir, 0755);
+        FILE *m = fopen(meta, "wb"); fputs("stale", m); fclose(m);
+
+        assert(!openpak_ca_installed());
+        assert(openpak_ca_install(err, sizeof(err)) == 2);      // both bundle paths
+        assert(openpak_ca_installed());
+        assert(read_all(meta) == NULL);                         // stale cache cleared
+
+        m = fopen(meta, "wb"); fputs("stale", m); fclose(m);
+        assert(openpak_ca_remove(err, sizeof(err)) == 2);
+        assert(!openpak_ca_installed());
+        assert(read_all(meta) == NULL);
+    }
 
     printf("hosts toggle: all checks passed\n");
     return 0;
