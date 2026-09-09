@@ -18,7 +18,8 @@
 // commented out: documented and one edit from live, but inert, because nothing of ours answers
 // on those addresses yet.
 //
-// Not because the title works otherwise. OpenPak's audience is banned consoles and emulators,
+// Not because the title works otherwise. OpenPak's audience is banned, jailbroken and emulated
+// consoles,
 // and every third party that validates a Nintendo-issued token upstream (Epic certainly,
 // Demonware probably) refuses an OpenPak console anyway -- our identity is not Nintendo's, and
 // a banned console cannot get Nintendo's. Those titles are already offline for the people who
