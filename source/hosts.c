@@ -29,9 +29,12 @@ const openpak_host openpak_hosts[] = {
     // ---- Researched, not served: written commented out ---------------------------------
     // Titles that reach a third party directly. Each name below was observed coming off a
     // console or an emulator on a dated run, not guessed -- but OpenPak runs no replacement
-    // for any of them, so redirecting one would take a working title offline. They ship
-    // inert so the inventory lives with the tool that would use it. Turn one on only once
-    // something answers on the other side.
+    // for any of them, so they ship inert: the inventory lives with the tool that would use
+    // it. Turn one on once something answers on the other side.
+    //
+    // These are not left off to protect a working title. On this project's actual audience --
+    // banned consoles and emulators -- most are already dead: the third party asks Nintendo to
+    // vouch for a token, and an OpenPak console has an OpenPak identity, not a Nintendo one.
     //
     // Crash Team Racing Nitro-Fueled -- Demonware (auth3 + LSG lobby), confirmed live
     // 2026-08-31. Whether the live service accepts an OpenPak-identified console is untested;

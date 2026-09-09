@@ -43,9 +43,14 @@ Epic, EA or Xbox Live. Those names are in the table too, but written **commented
 ...
 ```
 
-They ship inert on purpose. OpenPak runs no replacement for any of them, so redirecting one
-would take a title that works today offline and give nothing back — an OpenPak console
-reaches the real service exactly as it did before. They are recorded here because the
+They ship inert on purpose: nothing of ours answers on those addresses yet, so turning one on
+trades an authentication failure for a connection failure.
+
+Note what this is *not*. It is not "don't break a working title" — OpenPak is for banned
+consoles and emulators, and a third party that asks Nintendo to vouch for the console's token
+(Epic certainly, Demonware probably) refuses an OpenPak console regardless, because our
+identity is not Nintendo's and a banned console cannot obtain Nintendo's. For most of these
+titles the online half is already gone before this tool runs. They are recorded here because the
 inventory belongs with the tool that would use it, and because each was observed on a dated
 run rather than guessed. Turn one on by flipping its `redirect` flag in `source/hosts.c`
 once something answers on the other side; uncommenting the line in the hosts file works too,
