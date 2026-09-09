@@ -7,10 +7,25 @@
 #define OPENPAK_END   "# <<< openpak <<<"
 // Prefix stamped on someone else's redirect for a hostname we manage.
 #define OPENPAK_DISABLED "#openpak-off# "
+// Header above the inert research entries. They sit inside the block, so uncommenting one
+// lasts until the next enable, which regenerates it. Make it permanent in hosts.c instead.
+#define OPENPAK_RESEARCH_NOTE \
+    "# researched, not served -- uncomment only once something answers on the other side:"
 
-// Every name the OpenPak Switch adapter answers for. Wildcards are dns_mitm syntax.
-extern const char *const openpak_hosts[];
-extern const int openpak_hosts_count;
+// One managed hostname. Wildcards are dns_mitm syntax.
+//
+// redirect=false is a name we have researched but do not serve. It is written into the block
+// commented out: documented and one edit from live, but inert, because pointing a console at
+// a host with nothing behind it breaks a title that works today. Nothing about the console's
+// behaviour changes for those names -- they resolve to the real service, as they did before.
+typedef struct {
+    const char *host;
+    bool redirect;
+} openpak_host;
+
+extern const openpak_host openpak_hosts[];
+extern const int openpak_hosts_count;   // every managed name, redirected or not
+int openpak_hosts_active(void);         // only those actually pointed at our server
 
 // Path prefix in front of /atmosphere/... — "" on the console, a temp dir in the host test.
 extern const char *openpak_root;

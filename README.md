@@ -31,6 +31,29 @@ Choosing **OpenPak** writes the rules and comments out anyone else's redirect fo
 hostnames (an `#openpak-off#` prefix), so the choice actually decides where the console goes
 instead of falling through to another tool's leftovers.
 
+## Hosts we researched but do not serve
+
+Several Switch titles never touch a Nintendo host at all — they go straight to Demonware,
+Epic, EA or Xbox Live. Those names are in the table too, but written **commented out**:
+
+```
+# researched, not served -- uncomment only once something answers on the other side:
+# 10.0.0.7 lavender-switch-auth3.prod.demonware.net
+# 10.0.0.7 api.epicgames.dev
+...
+```
+
+They ship inert on purpose. OpenPak runs no replacement for any of them, so redirecting one
+would take a title that works today offline and give nothing back — an OpenPak console
+reaches the real service exactly as it did before. They are recorded here because the
+inventory belongs with the tool that would use it, and because each was observed on a dated
+run rather than guessed. Turn one on by flipping its `redirect` flag in `source/hosts.c`
+once something answers on the other side; uncommenting the line in the hosts file works too,
+but only until the next enable, which regenerates the block.
+
+For the same reason we do not comment out anyone *else's* redirect for these names, the way
+we do for the hosts we serve — we only claim what we answer for.
+
 Choosing **Nintendo** is a full revert: our block goes, every line we commented comes back
 exactly as it was, and if the hosts file contained nothing but our own additions it is
 deleted. The console is left as if this tool had never run. Nintendo's own addresses are

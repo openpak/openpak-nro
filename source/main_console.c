@@ -83,7 +83,8 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
                cur ? "" : "");
     }
 
-    printf("\n  %d host rules redirected\n\n", openpak_hosts_count);
+    printf("\n  %d host rules redirected (%d more researched, inert)\n\n",
+           openpak_hosts_active(), openpak_hosts_count - openpak_hosts_active());
     if (confirming)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] reboot now   [B] later\n", status[0] ? status : "Reboot to apply?");
     else {
