@@ -3,27 +3,72 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char *const openpak_hosts[] = {
+const openpak_host openpak_hosts[] = {
+    // ---- Served by OpenPak: redirected -------------------------------------------------
     // BAAS + Nintendo Account (login, device accounts, link)
-    "*.baas.nintendo.com",
-    "accounts.nintendo.com",
-    "api.accounts.nintendo.com",
-    "cdn.accounts.nintendo.com",
+    {"*.baas.nintendo.com", true},
+    {"accounts.nintendo.com", true},
+    {"api.accounts.nintendo.com", true},
+    {"cdn.accounts.nintendo.com", true},
     // device/application auth
-    "*.ndas.srv.nintendo.net",
+    {"*.ndas.srv.nintendo.net", true},
     // push (Penne), Vermillion, eShop beach, NSO membership
-    "*.penne.srv.nintendo.net",
-    "gw.hac.lp1.vermillion.srv.nintendo.net",
-    "beach.hac.lp1.eshop.nintendo.net",
-    "capi.lp1.op2.nintendo.net",
+    {"*.penne.srv.nintendo.net", true},
+    {"gw.hac.lp1.vermillion.srv.nintendo.net", true},
+    {"beach.hac.lp1.eshop.nintendo.net", true},
+    {"capi.lp1.op2.nintendo.net", true},
+    // licence service, contacted during account setup
+    {"*.dragons.nintendo.net", true},
     // per-title NPLN tenants
-    "*.t.npln.srv.nintendo.net",
+    {"*.t.npln.srv.nintendo.net", true},
     // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
     // and never touch a Nintendo host, so without these the console still reaches Photon Cloud.
-    "*.photonengine.io",
-    "*.exitgames.com",
+    {"*.photonengine.io", true},
+    {"*.exitgames.com", true},
+
+    // ---- Researched, not served: written commented out ---------------------------------
+    // Titles that reach a third party directly. Each name below was observed coming off a
+    // console or an emulator on a dated run, not guessed -- but OpenPak runs no replacement
+    // for any of them, so redirecting one would take a working title offline. They ship
+    // inert so the inventory lives with the tool that would use it. Turn one on only once
+    // something answers on the other side.
+    //
+    // Crash Team Racing Nitro-Fueled -- Demonware (auth3 + LSG lobby), confirmed live
+    // 2026-08-31. Whether the live service accepts an OpenPak-identified console is untested;
+    // if it does, this title needs nothing from us.
+    {"lavender-switch-auth3.prod.demonware.net", false},
+    {"lavender-switch-lobby.prod.demonware.net", false},
+    // Among Us -- Innersloth's matchmaker, port 443. servers/among-us proxies to Impostor but
+    // is not deployed, and which of the three regions the Switch build picks is uncaptured.
+    {"matchmaker.among.us", false},
+    {"matchmaker-eu.among.us", false},
+    {"matchmaker-as.among.us", false},
+    // Epic Online Services -- identity for Fall Guys and Among Us. Epic verifies the Nintendo
+    // token upstream, so an OpenPak-minted one cannot pass and a stub cannot stand in.
+    {"api.epicgames.dev", false},
+    // PvZ: Battle for Neighborville -- EA GOS/Blaze + Nucleus. The full host set is unknown
+    // (only spring18.gosredirector.ea.com and the signin hosts were seen), so this is the
+    // whole suffix, which is exactly why it must stay off.
+    {"*.ea.com", false},
+    // Minecraft Dungeons -- the confirmed Microsoft/Mojang inventory up to the sign-in screen,
+    // 2026-08-31. No Nintendo host is involved at all; this needs an xbox-live adapter, not a
+    // per-title server.
+    {"title.mgt.xboxlive.com", false},
+    {"sisu.xboxlive.com", false},
+    {"login.live.com", false},
+    {"launchercontent.mojang.com", false},
+    {"vortex.data.microsoft.com", false},
 };
 const int openpak_hosts_count = (int)(sizeof(openpak_hosts) / sizeof(openpak_hosts[0]));
+
+// ponytail: counted on demand rather than kept as a second hand-maintained constant that
+// could drift from the table above. Called twice, over ~25 entries.
+int openpak_hosts_active(void) {
+    int n = 0;
+    for (int i = 0; i < openpak_hosts_count; i++)
+        if (openpak_hosts[i].redirect) n++;
+    return n;
+}
 
 const char *openpak_root = "";
 
@@ -68,7 +113,10 @@ static bool line_targets_ours(const char *line) {
     if (!*host) return false;
 
     for (int i = 0; i < openpak_hosts_count; i++) {
-        const char *pat = openpak_hosts[i];
+        // Only names we actually serve. Commenting out someone else's redirect for a host we
+        // deliberately leave alone would take their working setup down and give nothing back.
+        if (!openpak_hosts[i].redirect) continue;
+        const char *pat = openpak_hosts[i].host;
         if (pat[0] == '*') {
             const char *suffix = pat + 1;                       // ".example.com"
             size_t hl = strcspn(host, " \t\r\n"), sl = strlen(suffix);
@@ -202,14 +250,20 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
         if (!base) { snprintf(err, errlen, "out of memory"); return false; }
 
         // block = existing content (ours removed) + a fresh block
-        size_t cap = strlen(base) + 128 + (size_t)openpak_hosts_count * 128;
+        size_t cap = strlen(base) + 512 + (size_t)openpak_hosts_count * 128;
         char *out = malloc(cap);
         if (!out) { free(base); snprintf(err, errlen, "out of memory"); return false; }
         int n = snprintf(out, cap, "%s%s%s\n", base,
                          (strlen(base) && base[strlen(base) - 1] != '\n') ? "\n" : "",
                          OPENPAK_BEGIN);
         for (int h = 0; h < openpak_hosts_count && n > 0 && (size_t)n < cap; h++)
-            n += snprintf(out + n, cap - (size_t)n, "%s %s\n", ip, openpak_hosts[h]);
+            if (openpak_hosts[h].redirect)
+                n += snprintf(out + n, cap - (size_t)n, "%s %s\n", ip, openpak_hosts[h].host);
+        if (n > 0 && (size_t)n < cap)
+            n += snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_RESEARCH_NOTE);
+        for (int h = 0; h < openpak_hosts_count && n > 0 && (size_t)n < cap; h++)
+            if (!openpak_hosts[h].redirect)
+                n += snprintf(out + n, cap - (size_t)n, "# %s %s\n", ip, openpak_hosts[h].host);
         if (n > 0 && (size_t)n < cap) snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_END);
         free(base);
 

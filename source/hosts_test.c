@@ -78,7 +78,32 @@ int main(void) {
     assert(strstr(after, "10.9.9.9 fro-3.hac.lp1.penne.srv.nintendo.net"));
     assert(strstr(after, "192.168.1.50 example.invalid"));
 
+    // Researched-but-unserved names ship inert. Redirecting one would take a title that
+    // works today offline, so they must be written commented and must not claim a conflict.
+    f = fopen(file, "wb");
+    fputs("10.9.9.9 lavender-switch-auth3.prod.demonware.net\n", f);
+    fclose(f);
+
+    assert(openpak_enable("10.0.0.7", err, sizeof(err)));
+    after = read_all(file);
+    assert(strstr(after, "# 10.0.0.7 lavender-switch-auth3.prod.demonware.net"));  // ours, inert
+    assert(!strstr(after, "\n10.0.0.7 lavender-switch-auth3"));                    // never live
+    assert(strstr(after, "# 10.0.0.7 api.epicgames.dev"));
+    assert(strstr(after, "# 10.0.0.7 *.ea.com"));
+    assert(strstr(after, OPENPAK_RESEARCH_NOTE));
+    // Someone else's redirect for a name we deliberately leave alone stays untouched: we only
+    // claim hosts we serve.
+    assert(strstr(after, "10.9.9.9 lavender-switch-auth3.prod.demonware.net"));
+    assert(!strstr(after, OPENPAK_DISABLED "10.9.9.9 lavender"));
+    assert(openpak_hosts_active() < openpak_hosts_count);
+
+    assert(openpak_disable(err, sizeof(err)));
+    after = read_all(file);
+    assert(!strstr(after, "epicgames"));                        // the whole block goes
+    assert(strstr(after, "10.9.9.9 lavender-switch-auth3"));    // theirs was never ours to move
+
     // A console that had no hosts file before gets none back afterwards.
+    remove(file);
     remove(file);
     assert(openpak_enable("10.0.0.7", err, sizeof(err)));
     assert(read_all(file) != NULL);
