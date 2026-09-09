@@ -15,9 +15,14 @@
 // One managed hostname. Wildcards are dns_mitm syntax.
 //
 // redirect=false is a name we have researched but do not serve. It is written into the block
-// commented out: documented and one edit from live, but inert, because pointing a console at
-// a host with nothing behind it breaks a title that works today. Nothing about the console's
-// behaviour changes for those names -- they resolve to the real service, as they did before.
+// commented out: documented and one edit from live, but inert, because nothing of ours answers
+// on those addresses yet.
+//
+// Not because the title works otherwise. OpenPak's audience is banned consoles and emulators,
+// and every third party that validates a Nintendo-issued token upstream (Epic certainly,
+// Demonware probably) refuses an OpenPak console anyway -- our identity is not Nintendo's, and
+// a banned console cannot get Nintendo's. Those titles are already offline for the people who
+// run this. Flipping one of these on costs nothing and gains nothing until a server exists.
 typedef struct {
     const char *host;
     bool redirect;
