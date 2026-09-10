@@ -21,7 +21,7 @@ SOURCES  := source
 INCLUDES := source
 APP_TITLE   := OpenPak
 APP_AUTHOR  := OpenPak
-APP_VERSION := 0.1.1
+APP_VERSION := 0.2.0
 # romfs carries the CA the console's browser must trust; there is no way to fetch it before
 # the console trusts us.
 ROMFS    := romfs
