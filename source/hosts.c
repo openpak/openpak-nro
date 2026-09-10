@@ -17,8 +17,12 @@ const openpak_host openpak_hosts[] = {
     {"gw.hac.lp1.vermillion.srv.nintendo.net", true},
     {"beach.hac.lp1.eshop.nintendo.net", true},
     {"capi.lp1.op2.nintendo.net", true},
+    // News catalog/detail/icon: isolated signed-container hardware experiment.
+    {"bcat-topics-lp1.cdn.nintendo.net", true},
     // licence service, contacted during account setup
     {"*.dragons.nintendo.net", true},
+    // save-data cloud: the storage API, the policy host and the two blob hosts
+    {"*.scsi.srv.nintendo.net", true},
     // per-title NPLN tenants
     {"*.t.npln.srv.nintendo.net", true},
     // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
