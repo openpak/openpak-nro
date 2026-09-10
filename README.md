@@ -13,13 +13,15 @@ The server address lives in `/switch/openpak/server.txt` and is editable on the 
 the system keyboard (X). Changes take effect after a reboot, since `dns_mitm` reads the hosts
 files at boot.
 
-## News routing update (2026-09-09)
+## News (2026-09-10)
 
-The managed host list now includes `bcat-topics-lp1.cdn.nintendo.net`, which
-serves the isolated signed News catalog experiment. Re-select OpenPak with
-the rebuilt NRO, even if already active, then reboot to load the added rule.
-The separate BCAT verification-key patch remains managed by the News probe.
-Native channel discovery and subscriptions are still under hardware testing.
+Selecting **OpenPak** also installs the two News patches the News probe proved on hardware
+(`news/tools/news-patch`): the BCAT verification key becomes OpenPak's, and the News catalog
+download skips the Nintendo edge token. Both are keyed by the BCAT build id (HOS 22.5.0
+today), so a console on another firmware simply ignores them. Selecting **Nintendo** removes
+them. The News host `bcat-topics-lp1.cdn.nintendo.net` is in the managed host list. Re-select
+OpenPak with this build, even if already active, then reboot. Whether the console shows
+channels depends on the news service publishing them; the console side is done here.
 
 ## Using it
 

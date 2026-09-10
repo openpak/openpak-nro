@@ -11,14 +11,23 @@
 //   nro_patches/disable_browser_ca_verification  — the web applet, so the link page loads
 //   exefs_patches/disable_ca_verification        — the ssl sysmodule, for system services
 //
-// Both are community patches (upstream exefs_patches repositories), keyed by build id: a
-// console uses whichever file matches the build it is running, so the whole set ships and the
-// console picks. Without the browser one, no certificate we install is ever consulted.
+//   exefs_patches/openpak_bcat_key               — BCAT verifies News containers with OpenPak's key
+//   exefs_patches/openpak_news_no_dauth          — News fetches its catalog without a Nintendo edge token
+//
+// The first two are community patches (upstream exefs_patches repositories); the News pair
+// comes from news/tools/news-patch and was proven on hardware by the News probe (v0.19).
+// All are keyed by build id: a console uses whichever file matches the build it is running,
+// so the whole set ships and the console picks. Without the browser one, no certificate we
+// install is ever consulted; without the News pair, News stays silent on OpenPak.
 static const char *const patch_sets[][2] = {
     {"romfs:/patches/nro_patches/disable_browser_ca_verification",
      "/atmosphere/nro_patches/disable_browser_ca_verification"},
     {"romfs:/patches/exefs_patches/disable_ca_verification",
      "/atmosphere/exefs_patches/disable_ca_verification"},
+    {"romfs:/patches/exefs_patches/openpak_bcat_key",
+     "/atmosphere/exefs_patches/openpak_bcat_key"},
+    {"romfs:/patches/exefs_patches/openpak_news_no_dauth",
+     "/atmosphere/exefs_patches/openpak_news_no_dauth"},
 };
 static const int patch_set_count = (int)(sizeof(patch_sets) / sizeof(patch_sets[0]));
 
