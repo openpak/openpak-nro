@@ -13,6 +13,14 @@ The server address lives in `/switch/openpak/server.txt` and is editable on the 
 the system keyboard (X). Changes take effect after a reboot, since `dns_mitm` reads the hosts
 files at boot.
 
+## News routing update (2026-09-09)
+
+The managed host list now includes `bcat-topics-lp1.cdn.nintendo.net`, which
+serves the isolated signed News catalog experiment. Re-select OpenPak with
+the rebuilt NRO, even if already active, then reboot to load the added rule.
+The separate BCAT verification-key patch remains managed by the News probe.
+Native channel discovery and subscriptions are still under hardware testing.
+
 ## Using it
 
 Two entries, one choice:
