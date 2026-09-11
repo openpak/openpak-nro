@@ -25,6 +25,11 @@ const openpak_host openpak_hosts[] = {
     {"*.scsi.srv.nintendo.net", true},
     // per-title NPLN tenants
     {"*.t.npln.srv.nintendo.net", true},
+    // NAT check (Pia NatDetection): 16-byte UDP probes to 10025/10125, the same protocol the
+    // Wii U and 3DS use, answered by nn-nncs. The console needs two responders on two
+    // different public addresses, so the second one names its own host.
+    {"nncs1-lp1.n.n.srv.nintendo.net", true},
+    {"nncs2-lp1.n.n.srv.nintendo.net", true, "145.241.228.207"},
     // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
     // and never touch a Nintendo host, so without these the console still reaches Photon Cloud.
     {"*.photonengine.io", true},
@@ -265,7 +270,8 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
                          OPENPAK_BEGIN);
         for (int h = 0; h < openpak_hosts_count && n > 0 && (size_t)n < cap; h++)
             if (openpak_hosts[h].redirect)
-                n += snprintf(out + n, cap - (size_t)n, "%s %s\n", ip, openpak_hosts[h].host);
+                n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
+                              openpak_hosts[h].address ? openpak_hosts[h].address : ip, openpak_hosts[h].host);
         if (n > 0 && (size_t)n < cap)
             n += snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_RESEARCH_NOTE);
         for (int h = 0; h < openpak_hosts_count && n > 0 && (size_t)n < cap; h++)

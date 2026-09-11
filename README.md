@@ -13,6 +13,12 @@ The server address lives in `/switch/openpak/server.txt` and is editable on the 
 the system keyboard (X). Changes take effect after a reboot, since `dns_mitm` reads the hosts
 files at boot.
 
+## NAT check (2026-09-11)
+
+The two Pia NAT-check names are in the managed list: `nncs1-lp1.n.n.srv.nintendo.net` goes
+to the server and `nncs2-lp1.n.n.srv.nintendo.net` to the second responder on its own
+address (the console requires two different public IPs). Both are answered by `nn-nncs`.
+
 ## News (2026-09-10)
 
 Selecting **OpenPak** also installs the two News patches the News probe proved on hardware
