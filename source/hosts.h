@@ -27,6 +27,7 @@
 typedef struct {
     const char *host;
     bool redirect;
+    const char *address;   // NULL = the server address; set when a name must live elsewhere
 } openpak_host;
 
 extern const openpak_host openpak_hosts[];
