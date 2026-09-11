@@ -50,11 +50,12 @@ const openpak_host openpak_hosts[] = {
     // if it does, this title needs nothing from us.
     {"lavender-switch-auth3.prod.demonware.net", false},
     {"lavender-switch-lobby.prod.demonware.net", false},
-    // Among Us -- Innersloth's matchmaker, port 443. servers/among-us proxies to Impostor but
-    // is not deployed, and which of the three regions the Switch build picks is uncaptured.
-    {"matchmaker.among.us", false},
-    {"matchmaker-eu.among.us", false},
-    {"matchmaker-as.among.us", false},
+    // Among Us -- Innersloth's matchmaker, port 443. servers/among-us + Impostor answer all
+    // three region names on OpenPak (2026-09-11); which one the Switch build picks is uncaptured,
+    // so all three are redirected.
+    {"matchmaker.among.us", true},
+    {"matchmaker-eu.among.us", true},
+    {"matchmaker-as.among.us", true},
     // Epic Online Services -- identity for Fall Guys and Among Us. Epic verifies the Nintendo
     // token upstream, so an OpenPak-minted one cannot pass and a stub cannot stand in.
     {"api.epicgames.dev", false},
