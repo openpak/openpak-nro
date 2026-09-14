@@ -50,6 +50,7 @@ jobs:
           gh release download openpak-network-v0.41.2 --repo "$GITHUB_REPOSITORY" \
             --pattern "openpak-network-linux-amd64"
           echo "020d812f2d2f61dbfbb0dc4015c61e5200eb96191faa6ca630107db8303aa83e  openpak-network-linux-amd64" | sha256sum -c -
+          mv openpak-network-linux-amd64 openpak-network
           chmod +x openpak-network
           echo "$PWD" >> "$GITHUB_PATH"
       - name: Authenticate the release job (02 AUTH-001)
