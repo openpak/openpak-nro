@@ -52,11 +52,11 @@ jobs:
           # The website repository is private, so the CI-built binary rides
           # on this repository's releases; the pinned hash here is what the
           # website release's checksums.txt recorded for this tool revision
-          # (openpak/website v0.41.3). The pin, not the download location,
+          # (openpak/website v0.41.4). The pin, not the download location,
           # is what authenticates the bytes.
           gh release download openpak-network-v0.41.2 --repo "$GITHUB_REPOSITORY" \
             --pattern "openpak-network-linux-amd64"
-          echo "099f2f1896ff143518893198a8456618ab326837fd977926d8304dfa5f51e3af  openpak-network-linux-amd64" | sha256sum -c -
+          echo "a326e1a549eb446c4d9cd1bc948905e2dc3199a0c1911bb2c9228800593e5a75  openpak-network-linux-amd64" | sha256sum -c -
           mv openpak-network-linux-amd64 openpak-network
           chmod +x openpak-network
           echo "$PWD" >> "$GITHUB_PATH"
