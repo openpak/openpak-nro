@@ -2,6 +2,15 @@ name: release
 
 # Every push to main builds both NROs and keeps them as a workflow artifact. A v* tag also
 # publishes them as release assets, which is what a console owner downloads.
+#
+# The `network` job is the build-time bundle resolution of PRD
+# universal-tls-forwarding/03 (G2 pilot): once the switch/staging
+# registration exists, releases fetch the signed bundle and verify it before
+# anything is compiled in. It runs only when OPENPAK_CLIENT_HASH is set as a
+# repository variable — an unset hash keeps the push builds on the checked-in
+# fixtures, the disabled path of the variable contract. Certification is
+# never inferred from a variable being set; the certified fetch runs only
+# here, with the CI identity proof the registry accepts.
 on:
   push:
     branches: [main]
@@ -19,11 +28,85 @@ jobs:
       - uses: actions/checkout@v4
       - run: make test
 
+  network:
+    if: vars.OPENPAK_CLIENT_HASH != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the job's own OIDC identity (02 AUTH-001)
+    steps:
+      - uses: actions/checkout@v4 # for the pinned trust root file
+      - name: Pin the fetch tool (03 BUILD-009)
+        run: |
+          set -e
+          cd "$(mktemp -d)"
+          base="https://github.com/openpak/website/releases/download/${{ vars.OPENPAK_NETWORK_TOOL_VERSION }}"
+          curl -fsSL -o openpak-network "$base/openpak-network-linux-amd64"
+          curl -fsSL -o checksums.txt "$base/checksums.txt"
+          grep 'openpak-network-linux-amd64' checksums.txt | sha256sum -c -
+          chmod +x openpak-network
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Authenticate the release job (02 AUTH-001)
+        run: |
+          set -e
+          if [ -n "${{ vars.OPENPAK_OIDC_AUDIENCE }}" ]; then
+            openpak-network authenticate \
+              --audience "${{ vars.OPENPAK_OIDC_AUDIENCE }}" \
+              --token-output "$RUNNER_TEMP/openpak-token"
+          else
+            # Interim staging path before the OIDC audience sign-off: the
+            # separately issued exchange secret, never the public hash.
+            openpak-network authenticate \
+              --token "${{ secrets.OPENPAK_STAGING_TOKEN }}" \
+              --token-output "$RUNNER_TEMP/openpak-token"
+          fi
+      - name: Fetch and verify the bundle (03 BUILD-002)
+        env:
+          OPENPAK_NETWORK_MODE: certified
+          OPENPAK_CLIENT_HASH: ${{ vars.OPENPAK_CLIENT_HASH }}
+          OPENPAK_PLATFORM: switch
+          OPENPAK_CHANNEL: staging
+          OPENPAK_BUILD_TOKEN_FILE: ${{ runner.temp }}/openpak-token
+          OPENPAK_BUNDLE_DIR: ${{ github.workspace }}/openpak-bundle
+          OPENPAK_ROOT_FILE: ${{ github.workspace }}/openpak/root.json
+        run: |
+          set -e
+          openpak-network fetch --output "$OPENPAK_BUNDLE_DIR"
+          openpak-network verify --bundle-dir "$OPENPAK_BUNDLE_DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openpak-bundle
+          path: |
+            openpak-bundle/policy.json
+            openpak-bundle/manifest.json
+            openpak-bundle/trust/ca.pem
+            openpak-bundle/openpak-network.lock.json
+          if-no-files-found: error
+
   build:
     runs-on: ubuntu-latest
     container: docker.io/devkitpro/devkita64:latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: openpak-bundle
+          path: openpak-bundle
+        # Skipped cleanly when the network job did not run (no registration
+        # yet): the build falls back to the checked-in fixtures.
+        continue-on-error: true
+      - name: Install the verified bundle into RomFS (03 BUILD-M1)
+        run: |
+          set -e
+          if [ -f openpak-bundle/policy.json ]; then
+            mkdir -p romfs/openpak
+            cp openpak-bundle/policy.json romfs/openpak/policy.json
+            cp openpak-bundle/trust/ca.pem romfs/ca.pem
+            rm -f romfs/ca.der # make regenerates it from the fetched CA
+            echo "romfs carries the registry-verified bundle (staging)"
+          else
+            echo "no resolved bundle; building on the checked-in fixtures (disabled path)"
+          fi
       - run: make
       - run: make UI=console
       - uses: actions/upload-artifact@v4
@@ -35,16 +118,30 @@ jobs:
           if-no-files-found: error
 
   release:
+    # `network` is skipped before the registration exists; skipped does not
+    # block. Once registered, a failed fetch does block: a certified release
+    # is never silently converted to an uncertified one (03 BUILD-001).
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, build]
+    needs: [test, build, network]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: nro
+      - uses: actions/download-artifact@v4
+        with:
+          name: openpak-bundle
+          path: openpak-bundle
+        continue-on-error: true # provenance rides along only when certified
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" openpak.nro openpak-console.nro \
+          set -e
+          assets="openpak.nro openpak-console.nro"
+          if [ -f openpak-bundle/openpak-network.lock.json ]; then
+            # 03: a certified release retains the lockfile beside the binary.
+            assets="$assets openpak-bundle/openpak-network.lock.json"
+          fi
+          gh release create "$GITHUB_REF_NAME" $assets \
             --repo "$GITHUB_REPOSITORY" --title "openpak-nro $GITHUB_REF_NAME" \
             --notes "Copy openpak.nro to /switch/ on the SD card. openpak-console.nro is the plain-text fallback."
