@@ -37,13 +37,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # for the pinned trust root file
       - name: Pin the fetch tool (03 BUILD-009)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           cd "$(mktemp -d)"
-          base="https://github.com/openpak/website/releases/download/${{ vars.OPENPAK_NETWORK_TOOL_VERSION }}"
-          curl -fsSL -o openpak-network "$base/openpak-network-linux-amd64"
-          curl -fsSL -o checksums.txt "$base/checksums.txt"
-          grep 'openpak-network-linux-amd64' checksums.txt | sha256sum -c -
+          # The website repository is private, so the CI-built binary rides
+          # on this repository's releases; the pinned hash here is what the
+          # website release's checksums.txt recorded for this tool revision
+          # (openpak/website v0.41.2). The pin, not the download location,
+          # is what authenticates the bytes.
+          gh release download openpak-network-v0.41.2 --repo "$GITHUB_REPOSITORY" \
+            --pattern "openpak-network-linux-amd64"
+          echo "020d812f2d2f61dbfbb0dc4015c61e5200eb96191faa6ca630107db8303aa83e  openpak-network-linux-amd64" | sha256sum -c -
           chmod +x openpak-network
           echo "$PWD" >> "$GITHUB_PATH"
       - name: Authenticate the release job (02 AUTH-001)
