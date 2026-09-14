@@ -34,6 +34,13 @@ jobs:
     permissions:
       contents: read
       id-token: write # the job's own OIDC identity (02 AUTH-001)
+    env:
+      # Both the exchange (authenticate) and the fetch steps speak the same
+      # variable contract (03).
+      OPENPAK_NETWORK_MODE: certified
+      OPENPAK_CLIENT_HASH: ${{ vars.OPENPAK_CLIENT_HASH }}
+      OPENPAK_PLATFORM: switch
+      OPENPAK_CHANNEL: staging
     steps:
       - uses: actions/checkout@v4 # for the pinned trust root file
       - name: Pin the fetch tool (03 BUILD-009)
@@ -69,10 +76,6 @@ jobs:
           fi
       - name: Fetch and verify the bundle (03 BUILD-002)
         env:
-          OPENPAK_NETWORK_MODE: certified
-          OPENPAK_CLIENT_HASH: ${{ vars.OPENPAK_CLIENT_HASH }}
-          OPENPAK_PLATFORM: switch
-          OPENPAK_CHANNEL: staging
           OPENPAK_BUILD_TOKEN_FILE: ${{ runner.temp }}/openpak-token
           OPENPAK_BUNDLE_DIR: ${{ github.workspace }}/openpak-bundle
           OPENPAK_ROOT_FILE: ${{ github.workspace }}/openpak/root.json
