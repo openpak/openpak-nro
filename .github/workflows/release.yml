@@ -34,13 +34,17 @@ jobs:
     permissions:
       contents: read
       id-token: write # the job's own OIDC identity (02 AUTH-001)
+    # The protected environment (02 AUTH-001): the OIDC token carries its
+    # name, and only a production-environment assertion authorizes a
+    # production-approved registration.
+    environment: production
     env:
       # Both the exchange (authenticate) and the fetch steps speak the same
       # variable contract (03).
       OPENPAK_NETWORK_MODE: certified
       OPENPAK_CLIENT_HASH: ${{ vars.OPENPAK_CLIENT_HASH }}
       OPENPAK_PLATFORM: switch
-      OPENPAK_CHANNEL: staging
+      OPENPAK_CHANNEL: stable
     steps:
       - uses: actions/checkout@v4 # for the pinned trust root file
       - name: Pin the fetch tool (03 BUILD-009)
