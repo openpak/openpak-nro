@@ -117,7 +117,7 @@ jobs:
             cp openpak-bundle/policy.json romfs/openpak/policy.json
             cp openpak-bundle/trust/ca.pem romfs/ca.pem
             rm -f romfs/ca.der # make regenerates it from the fetched CA
-            echo "romfs carries the registry-verified bundle (staging)"
+            echo "romfs carries the registry-verified bundle ($OPENPAK_CHANNEL)"
           else
             echo "no resolved bundle; building on the checked-in fixtures (disabled path)"
           fi
