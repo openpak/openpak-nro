@@ -1,0 +1,7 @@
+ams_mitm-1.11.2.kip is built from Atmosphere 1.11.2:
+https://github.com/Atmosphere-NX/Atmosphere/tree/5388824be146a89619e8d641acd64599cf1c5f62
+Local modification: allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId.
+The exact patch and build script are supplied in the openpak-nro source tree:
+tools/atmosphere-ssl.patch and tools/build-system-module.sh.
+Atmosphere's license is included as LICENSE.Atmosphere.
+This asset contains open-source Atmosphere code, not Nintendo firmware.

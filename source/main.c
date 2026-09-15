@@ -10,6 +10,7 @@
 // Written from scratch against libnx: no code from any other homebrew.
 #include "gfx.h"
 #include "ca.h"
+#include "system.h"
 #include "hosts.h"
 #include "logo.h"
 #include "text.h"
@@ -211,23 +212,27 @@ int main(int argc, char **argv) {
             // Selecting the network already in use re-applies it rather than refusing: that is
             // how a console picks up a new CA or new host rules after the tool is updated.
             bool again = (want_openpak == on);
-            if (want_openpak ? openpak_enable(ip, err, sizeof(err))
-                             : openpak_disable(err, sizeof(err))) {
-                // Host rules alone are not enough: the browser keeps its own CA bundle, and
-                // without ours the link page never loads.
-                int bundles = 0, patches = 0;
+            bool applied = want_openpak ? openpak_system_install(err, sizeof(err))
+                                        : openpak_system_remove(err, sizeof(err));
+            if (applied) {
                 if (want_openpak) {
-                    bundles = openpak_ca_install(err, sizeof(err));
-                    patches = openpak_patches_install();
+                    int bundles = openpak_ca_install(err, sizeof(err));
+                    int patches = openpak_patches_install();
+                    applied = bundles > 0 && patches > 0;
+                    if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
                 } else {
-                    bundles = openpak_ca_remove(err, sizeof(err));
-                    patches = openpak_patches_remove();
+                    openpak_ca_remove(err, sizeof(err));
+                    openpak_patches_remove();
                 }
+            }
+            if (applied) applied = want_openpak ? openpak_enable(ip, err, sizeof(err))
+                                               : openpak_disable(err, sizeof(err));
+            if (applied) {
                 on = want_openpak;
                 confirm_reboot = true;
-                snprintf(status, sizeof(status), again ? "%s re-applied — %d CA files, %d patches.  Reboot?"
-                                                       : "Switched to %s — %d CA files, %d patches.  Reboot?",
-                         item_labels[sel], bundles, patches);
+                snprintf(status, sizeof(status), again ? "%s setup updated. Reboot to apply?"
+                                                       : "%s selected. Reboot to apply?",
+                         want_openpak ? "OpenPak" : "Nintendo");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
             }

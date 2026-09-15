@@ -4,6 +4,7 @@
 // a few hundred KB and loads in applet mode, where the SDL build needs the memory of a
 // full title takeover.
 #include "ca.h"
+#include "system.h"
 #include "hosts.h"
 
 #include <stdio.h>
@@ -134,14 +135,26 @@ int main(int argc, char **argv) {
             // Re-selecting the active network re-applies it, so an updated CA or host list
             // reaches a console that is already switched over.
             bool again = (want_openpak == on);
-            if (want_openpak ? openpak_enable(ip, err, sizeof(err))
-                             : openpak_disable(err, sizeof(err))) {
-                if (want_openpak) { openpak_ca_install(err, sizeof(err)); openpak_patches_install(); }
-                else               { openpak_ca_remove(err, sizeof(err));  openpak_patches_remove();  }
+            bool applied = want_openpak ? openpak_system_install(err, sizeof(err))
+                                        : openpak_system_remove(err, sizeof(err));
+            if (applied) {
+                if (want_openpak) {
+                    int bundles = openpak_ca_install(err, sizeof(err));
+                    int patches = openpak_patches_install();
+                    applied = bundles > 0 && patches > 0;
+                    if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
+                } else {
+                    openpak_ca_remove(err, sizeof(err));
+                    openpak_patches_remove();
+                }
+            }
+            if (applied) applied = want_openpak ? openpak_enable(ip, err, sizeof(err))
+                                               : openpak_disable(err, sizeof(err));
+            if (applied) {
                 on = want_openpak;
                 confirm_reboot = true;
-                snprintf(status, sizeof(status), again ? "%s re-applied.  Reboot to apply?"
-                                                       : "Switched to %s.  Reboot to apply?",
+                snprintf(status, sizeof(status), again ? "%s setup updated. Reboot to apply?"
+                                                       : "%s selected. Reboot to apply?",
                          want_openpak ? "OpenPak" : "Nintendo");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);

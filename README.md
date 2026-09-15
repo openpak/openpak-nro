@@ -98,3 +98,45 @@ make test    # host-side check of the toggle logic, no console needed
 
 Written from scratch on libnx + SDL2 + SDL2_ttf; it ships no font, using the console's own
 shared font instead. AGPL-3.0-only.
+
+## System certificate support (0.3.1)
+
+Select **OpenPak**, accept the reboot, and launch the game normally. Selecting
+**Nintendo** restores the original system setup and offers the same reboot.
+Stardew's executable is unchanged. Native Stardew online was confirmed working
+with this system change; the revised installer needs a hardware round-trip.
+
+This build supports the official **Atmosphere 1.11.2** package at
+`/atmosphere/package3` with standard `pkg3` or `fss0` entries in
+`/bootloader/hekate_ipl.ini`. Enable verifies the original package's complete
+SHA-256, builds `/atmosphere/package3-openpak` with the replacement `ams_mitm`,
+and updates those entries automatically. The original package and autoboot
+selection remain untouched. No extra installation or manual boot selection is
+required. The active package can remain open while the NRO changes the boot
+configuration. Unknown configurations produce a setup error.
+
+The NRO reads the console's certificates through SSL and constructs a
+certificate-store file, replacing expired certificate 1033 with the bundled
+OpenPak CA. No Nintendo certificate archive is bundled. The original boot
+configuration and any pre-existing certificate overlay are backed up in
+`/switch/openpak/system`. Disable restores them. The inactive OpenPak package
+is retained because it may still be open by the current boot; re-enable reuses
+an identical package without rewriting it. Independently changed configuration
+or certificate files are preserved, with setup stopped for review. Writes are
+staged and read back before activation. Do not delete the backup folder while
+OpenPak is enabled.
+
+Version 0.3.0 attempted to replace the active package and failed on this console.
+Version 0.3.1 replaces that activation method. Existing recovery copies from
+0.3.0 can remain on SD; they are not used to select the boot package.
+
+The game-invitation service `*.five.nintendo.net` is included in the managed hosts
+list. Earlier builds omitted it, preventing the native invitation applet from
+reaching OpenPak in configurations that block Nintendo hosts.
+
+Build the bundled open-source component with `bash tools/build-system-module.sh`.
+Its source revision and local patch are listed in `romfs/system/SOURCE.txt`.
+Run `make test` for host-side checks, and use
+`python3 tools/test-system.py --package3 /path/to/official/package3` for the full
+install/reapply/rollback and interrupted-activation tests. That input is local and
+is not distributed in this repository.

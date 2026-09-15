@@ -1,0 +1,15 @@
+diff --git a/stratosphere/ams_mitm/source/fs_mitm/fs_mitm_service.hpp b/stratosphere/ams_mitm/source/fs_mitm/fs_mitm_service.hpp
+index 71e87c1..9102863 100644
+--- a/stratosphere/ams_mitm/source/fs_mitm/fs_mitm_service.hpp
++++ b/stratosphere/ams_mitm/source/fs_mitm/fs_mitm_service.hpp
+@@ -38,6 +38,10 @@ namespace ams::mitm::fs {
+             using MitmServiceImplBase::MitmServiceImplBase;
+         public:
+             static constexpr ALWAYS_INLINE bool ShouldMitmProgramId(const ncm::ProgramId program_id) {
++                /* OpenPak: allow SSL to load the SD certificate-store overlay at boot. */
++                if (program_id == ncm::SystemProgramId::Ssl) {
++                    return true;
++                }
+                 /* We want to mitm everything that isn't a system-module. */
+                 if (!ncm::IsSystemProgramId(program_id)) {
+                     return true;

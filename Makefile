@@ -21,7 +21,7 @@ SOURCES  := source
 INCLUDES := source
 APP_TITLE   := OpenPak
 APP_AUTHOR  := OpenPak
-APP_VERSION := 0.2.2
+APP_VERSION := 0.3.1
 # romfs carries the CA the console's browser must trust; there is no way to fetch it before
 # the console trusts us.
 ROMFS    := romfs
@@ -45,7 +45,7 @@ export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
 # One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
+UI_SKIP  := hosts_test.c system_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
 CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -61,8 +61,11 @@ export ROMFS
 export UI
 
 .PHONY: all clean test
-all: $(BUILD)
+all: romfs/ca.der $(BUILD)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+romfs/ca.der: romfs/ca.pem
+	openssl x509 -in $< -outform DER -out $@
 
 $(BUILD):
 	@mkdir -p $@
@@ -73,11 +76,13 @@ clean:
 # Runs on a PC, not the console: the toggle logic with a temp SD root.
 test:
 	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/ca.c source/hosts_test.c && /tmp/openpak_hosts_test
+	@python3 tools/test-system.py
 
 else
 DEPENDS := $(OFILES:.o=.d)
 all: $(OUTPUT).nro
-$(OUTPUT).nro: $(OUTPUT).elf $(OUTPUT).nacp
+$(OUTPUT).nro: $(OUTPUT).elf $(OUTPUT).nacp $(shell find $(TOPDIR)/romfs -type f)
+$(OUTPUT).nacp: $(TOPDIR)/Makefile
 $(OUTPUT).elf: $(OFILES)
 -include $(DEPENDS)
 endif
