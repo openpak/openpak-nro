@@ -14,6 +14,8 @@ const openpak_host openpak_hosts[] = {
     {"*.ndas.srv.nintendo.net", true},
     // push (Penne), Vermillion, eShop beach, NSO membership
     {"*.penne.srv.nintendo.net", true},
+    // Native friend-invitation applet (used by Outbound and other titles).
+    {"*.five.nintendo.net", true},
     {"gw.hac.lp1.vermillion.srv.nintendo.net", true},
     {"beach.hac.lp1.eshop.nintendo.net", true},
     {"capi.lp1.op2.nintendo.net", true},
