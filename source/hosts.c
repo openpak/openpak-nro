@@ -32,6 +32,9 @@ const openpak_host openpak_hosts[] = {
     // different public addresses, so the second one names its own host.
     {"nncs1-lp1.n.n.srv.nintendo.net", true},
     {"nncs2-lp1.n.n.srv.nintendo.net", true, "145.241.228.207"},
+    // Mario Kart 8 Deluxe (game server 2b309e01): NEX auth is reached by this hostname
+    // through the edge on 443; the secure stage dials the station URL's raw IP instead.
+    {"g2b309e01-lp1.s.n.srv.nintendo.net", true},
     // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
     // and never touch a Nintendo host, so without these the console still reaches Photon Cloud.
     {"*.photonengine.io", true},
