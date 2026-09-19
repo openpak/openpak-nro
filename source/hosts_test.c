@@ -40,7 +40,7 @@ int main(void) {
     assert(strstr(after, "10.0.0.7 *.five.nintendo.net"));
     assert(strstr(after, "192.168.1.50 example.invalid"));     // pre-existing line kept
     assert(strstr(after, "10.0.0.7 accounts.nintendo.com"));   // our entries written
-    assert(strstr(after, "10.0.0.7 g2b309e01-lp1.s.n.srv.nintendo.net"));  // MK8D NEX edge
+    assert(strstr(after, "10.0.0.7 *.s.n.srv.nintendo.net"));  // every NEX game server
     assert(strstr(after, OPENPAK_BEGIN) && strstr(after, OPENPAK_END));
 
     // Enabling twice must replace the block, not stack two copies.
