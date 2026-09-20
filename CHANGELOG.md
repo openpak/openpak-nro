@@ -5,6 +5,9 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- news: selecting OpenPak subscribes the News module to OpenPak's channels
+  and requests an immediate receive; selecting Nintendo drops only those
+  subscriptions [unreleased]
 - release: the build report names the channel it fetched [3bab250]
 - openpak: pin the provisioned trust root [6e5d77b]
 - release: fetch the stable channel as the production-approved pilot [32a5224]

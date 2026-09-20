@@ -43,6 +43,22 @@ const openpak_host openpak_hosts[] = {
     {"*.photonengine.io", true},
     {"*.exitgames.com", true},
 
+    // Diablo II: Resurrected -- servers/battlenet answers all of these. Every name was seen
+    // resolving on a live run, in this order: geo picks the region, telemetry-in takes the
+    // client's events, account is the web login that issues the session (check_token), and
+    // *.actual is the bgs gateway on port 1119. Both regions are covered by the wildcard
+    // because geo decides which one the title dials, and a console that geolocates to EU
+    // would otherwise reach nothing.
+    //
+    // The game-server leg needs nothing here beyond the gateway name. It is the one
+    // connection the title does NOT put through the ssl sysmodule -- bgs-sdk carries its own
+    // OpenSSL with its own CA list, so the OpenPak CA this NRO installs cannot help it. That
+    // is handled on the server instead, by serving it as ws:// so no certificate is involved.
+    {"geo.battle.net", true},
+    {"telemetry-in.battle.net", true},
+    {"account.battle.net", true},
+    {"*.actual.battle.net", true},
+
     // ---- Researched, not served: written commented out ---------------------------------
     // Titles that reach a third party directly. Each name below was observed coming off a
     // console or an emulator on a dated run, not guessed -- but OpenPak runs no replacement
@@ -75,6 +91,10 @@ const openpak_host openpak_hosts[] = {
     // 2026-08-31. No Nintendo host is involved at all; this needs an xbox-live adapter, not a
     // per-title server.
     {"title.mgt.xboxlive.com", false},
+    // Diablo II: Resurrected's content depot. The title resolves it on every boot, but
+    // OpenPak serves nothing there, so redirecting it would blackhole content requests that
+    // today simply fail against Blizzard. On once something answers.
+    {"prod.depot.battle.net", false},
     {"sisu.xboxlive.com", false},
     {"login.live.com", false},
     {"launchercontent.mojang.com", false},
