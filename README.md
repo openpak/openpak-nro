@@ -26,8 +26,36 @@ Selecting **OpenPak** also installs the two News patches the News probe proved o
 download skips the Nintendo edge token. Both are keyed by the BCAT build id (HOS 22.5.0
 today), so a console on another firmware simply ignores them. Selecting **Nintendo** removes
 them. The News host `bcat-topics-lp1.cdn.nintendo.net` is in the managed host list. Re-select
-OpenPak with this build, even if already active, then reboot. Whether the console shows
-channels depends on the news service publishing them; the console side is done here.
+OpenPak with this build, even if already active, then reboot.
+
+Selecting OpenPak now also subscribes the News module to OpenPak's four channels and asks
+it to receive (`SetSubscriptionStatus`, `RequestImmediateReception` on news:a). Patches and
+host rules alone are not enough: the module only fetches channels it follows. Selecting
+Nintendo drops those subscriptions and nothing else — the console's Nintendo channels are
+never touched, and `ClearSubscriptionStatusAll` is never called.
+
+The filter argument these commands take is undocumented, so three spellings are probed
+read-only and only a filter naming an `openpak_` topic is ever written. If none is accepted
+the rest of the setup still applies. Untested on hardware as of 2026-09-16.
+
+## Diablo II: Resurrected (2026-09-20)
+
+Four names join the managed list: `geo.battle.net` picks the region,
+`telemetry-in.battle.net` takes the client's events, `account.battle.net` is the web login
+that issues the session, and `*.actual.battle.net` is the bgs gateway on port 1119. The
+wildcard covers both regions on purpose — geo decides which one the title dials, so a console
+that geolocates to EU would otherwise reach nothing.
+
+`prod.depot.battle.net` is listed but **off**: the title resolves it on every boot and OpenPak
+serves nothing there, so redirecting it would blackhole content requests that today just fail
+against Blizzard.
+
+Nothing else is needed on the console. The certificate this NRO already installs into the ssl
+sysmodule covers geo, telemetry, account and the gateway, because the title puts all four
+through `nn::ssl`. It does **not** cover the game-server connection: that one leg is handled
+inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no console-side
+certificate can extend. The server sides that one as `ws://` instead, so no certificate is
+involved — see `servers/battlenet/docs/d2r-protocol.md`.
 
 ## Using it
 

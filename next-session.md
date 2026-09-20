@@ -1,6 +1,17 @@
 # Next session — console/openpak-nro
 
-Updated 2026-09-15.
+Updated 2026-09-16.
+
+**New and untested on hardware (2026-09-16):** `source/news.[ch]` — selecting
+OpenPak now subscribes the News module to the four OpenPak channels
+(`SetSubscriptionStatus` 40100) and requests an immediate receive (30300) on
+news:a; selecting Nintendo drops only those subscriptions, never
+`ClearSubscriptionStatusAll`. The patches and the topics redirect were
+already shipped; following the channels was the missing step, so News stayed
+empty. The filter argument is undocumented: three spellings are probed
+read-only and only a filter naming an `openpak_` topic is written. Both UIs
+rebuilt, `make test` passes on the host. Which spelling is real comes from
+the News probe v0.21 run — see `../../news/next-session.md`.
 
 The CFW console switcher: enable writes a marked `dns_mitm` hosts block
 pointing every OpenPak-served name at the server; disable removes it and
@@ -50,6 +61,8 @@ and native Stardew online is already confirmed working with it on hardware.
    version pinned (1.11.2) — see `../atmosphere-ssl-overlay`.
 4. Remember the standing user instruction: re-select OpenPak with this
    build even if already active, then reboot.
+5. Once the News probe reports which subscription filter the service
+   accepts, drop the other two candidates from `source/news.c`.
 
 ## Pointers
 

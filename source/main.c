@@ -12,6 +12,7 @@
 #include "ca.h"
 #include "system.h"
 #include "hosts.h"
+#include "news.h"
 #include "logo.h"
 #include "text.h"
 
@@ -218,11 +219,14 @@ int main(int argc, char **argv) {
                 if (want_openpak) {
                     int bundles = openpak_ca_install(err, sizeof(err));
                     int patches = openpak_patches_install();
+                    // The News module only fetches channels it follows.
+                    openpak_news_subscribe();
                     applied = bundles > 0 && patches > 0;
                     if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
                 } else {
                     openpak_ca_remove(err, sizeof(err));
                     openpak_patches_remove();
+                    openpak_news_unsubscribe();
                 }
             }
             if (applied) applied = want_openpak ? openpak_enable(ip, err, sizeof(err))
