@@ -23,14 +23,14 @@ permissions:
 jobs:
   test:
     # The toggle logic has a host-side check that needs nothing but a C compiler.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, podman]
     steps:
       - uses: actions/checkout@v4
       - run: make test
 
   network:
     if: vars.OPENPAK_CLIENT_HASH != ''
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, podman]
     permissions:
       contents: read
       id-token: write # the job's own OIDC identity (02 AUTH-001)
@@ -98,8 +98,7 @@ jobs:
           if-no-files-found: error
 
   build:
-    runs-on: ubuntu-latest
-    container: docker.io/devkitpro/devkita64:latest
+    runs-on: [self-hosted, linux, podman]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -121,8 +120,13 @@ jobs:
           else
             echo "no resolved bundle; building on the checked-in fixtures (disabled path)"
           fi
-      - run: make
-      - run: make UI=console
+      - name: Build both NRO variants
+        run: |
+          set -e
+          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
+            docker.io/devkitpro/devkita64:latest make
+          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
+            docker.io/devkitpro/devkita64:latest make UI=console
       - uses: actions/upload-artifact@v4
         with:
           name: nro
@@ -137,7 +141,7 @@ jobs:
     # is never silently converted to an uncertified one (03 BUILD-001).
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [test, build, network]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, podman]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -151,11 +155,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          assets="openpak.nro openpak-console.nro"
+          assets=(openpak.nro openpak-console.nro)
           if [ -f openpak-bundle/openpak-network.lock.json ]; then
             # 03: a certified release retains the lockfile beside the binary.
-            assets="$assets openpak-bundle/openpak-network.lock.json"
+            assets+=(openpak-bundle/openpak-network.lock.json)
           fi
-          gh release create "$GITHUB_REF_NAME" $assets \
-            --repo "$GITHUB_REPOSITORY" --title "openpak-nro $GITHUB_REF_NAME" \
-            --notes "Copy openpak.nro to /switch/ on the SD card. openpak-console.nro is the plain-text fallback."
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --title "openpak-nro $GITHUB_REF_NAME" \
+              --notes "Copy openpak.nro to /switch/ on the SD card. openpak-console.nro is the plain-text fallback."
+          fi
