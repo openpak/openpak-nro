@@ -38,6 +38,11 @@ const openpak_host openpak_hosts[] = {
     // with BAAS redirected, its token is ours and Nintendo's server refuses it anyway
     // (Kirby, 2026-09-19: 2306-0807 when its host alone still went to Nintendo).
     {"*.s.n.srv.nintendo.net", true},
+    // Animal Crossing web API (island/user registration, profiles, NookLink
+    // sync): answered by nx-baas since 2026-09-21. Without this the console
+    // keeps reaching retail acbaa, which refuses the OpenPak-minted token
+    // and the game shows 2219-4001 (invalid authorization) on online entry.
+    {"*.acbaa.srv.nintendo.net", true},
     // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
     // and never touch a Nintendo host, so without these the console still reaches Photon Cloud.
     {"*.photonengine.io", true},
