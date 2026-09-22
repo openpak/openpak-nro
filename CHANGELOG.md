@@ -5,9 +5,16 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+
+## v0.3.5 — 2026-09-22
+
+- install the OpenPak CA into the system SSL certificate store through the
+  supported Atmosphere 1.11.2 package path
+- redirect all served NEX game hosts, the Diablo II: Resurrected Battle.net
+  hosts, and the Animal Crossing web API to OpenPak
 - news: selecting OpenPak subscribes the News module to OpenPak's channels
   and requests an immediate receive; selecting Nintendo drops only those
-  subscriptions [unreleased]
+  subscriptions [e10bf17]
 - release: the build report names the channel it fetched [3bab250]
 - openpak: pin the provisioned trust root [6e5d77b]
 - release: fetch the stable channel as the production-approved pilot [32a5224]
@@ -59,4 +66,3 @@ of truth; this file is the readable summary.
 - List-driven UI, applies on select, then offers the reboot [e3feb43]
 - Add a text-mode build that loads in applet mode [935f8c6]
 - openpak.nro: switch the console between Nintendo and OpenPak [77cddea]
-
