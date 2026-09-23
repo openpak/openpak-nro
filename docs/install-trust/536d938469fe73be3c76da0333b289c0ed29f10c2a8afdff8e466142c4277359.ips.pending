@@ -1,0 +1,19 @@
+CANDIDATE, NOT AN INSTALLABLE PATCH — extension is .ips.pending on purpose so
+no copy logic (which matches only *.ips) can ever ship it.
+
+Target: FS 22.5.0 NCA fixed-key header-signature verification.
+FS KIP sha256: 536d938469fe73be3c76da0333b289c0ed29f10c2a8afdff8e466142c4277359
+
+Status: verify site NOT yet reduced to exact bytes. See ../install-trust.md
+("FS NCA-header-signature patch — candidate") for the anchors:
+  - NCA header processor: FS vaddr 0x26570
+  - magic 'NCA3' compares: 0x26754, 0x26794
+  - version-magic helper: 0x16e3a0 ; abort logger: 0x54df0
+
+Next step: decompile 0x26570 and its caller in the m0/ghidra_proj FSm0 GUI,
+read the RSA-2048-PSS header-signature verify and the branch on its result,
+record original bytes + minimal success-forcing edit, encode as IPS at the
+correct kip-patch offset convention (confirm against Atmosphère 1.11.2
+fusee/ldr kip-patch handling), rename to <fs-hash>.ips, hardware-test per
+install-trust.md, then move into
+romfs/patches/kip_patches/openpak_fs_no_ncasig/ and rebuild.

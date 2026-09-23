@@ -13,6 +13,7 @@
 #include "system.h"
 #include "hosts.h"
 #include "news.h"
+#include "installtrust.h"
 #include "logo.h"
 #include "text.h"
 
@@ -48,7 +49,9 @@ static const Color WARN_BG = {0x2c, 0x24, 0x14, 255};
 #define PX_BODY    24
 #define PX_LABEL   19
 
-// The whole tool is one choice: which network this console talks to.
+// The whole tool is one choice: which network this console talks to. Choosing
+// OpenPak installs everything OpenPak needs together — hosts, CA, News patches
+// and the store-install patch; choosing Nintendo removes all of it.
 enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 static const char *const item_labels[IT_COUNT] = {"Nintendo", "OpenPak"};
 
@@ -203,6 +206,16 @@ int main(int argc, char **argv) {
     bool on = openpak_enabled();
     bool confirm_reboot = false;
     int sel = on ? IT_OPENPAK : IT_NINTENDO;
+    // A console that was on OpenPak and has since been updated off 22.5.0 is in an
+    // unsupported state: warn at launch and point at the fix (select Nintendo, which
+    // removes cleanly on any firmware).
+    {
+        char fw[32] = "";
+        if (on && !openpak_firmware_supported(fw, sizeof(fw)))
+            snprintf(status, sizeof(status),
+                     "Warning: OpenPak is on but this console runs %s, not " OPENPAK_FIRMWARE
+                     ". Select Nintendo to remove.", fw);
+    }
 
     while (appletMainLoop()) {
         padUpdate(&pad);
@@ -220,9 +233,20 @@ int main(int argc, char **argv) {
             break;
         } else if (down & HidNpadButton_A) {
             bool want_openpak = (sel == IT_OPENPAK);
+            // OpenPak is built for one firmware; installing on another is refused before a
+            // single file is written. Removal (Nintendo) is allowed on any firmware, so a
+            // console updated after installing can always clean up.
+            char fw[32] = "";
+            if (want_openpak && !openpak_firmware_supported(fw, sizeof(fw))) {
+                snprintf(status, sizeof(status),
+                         "OpenPak requires firmware " OPENPAK_FIRMWARE " — this console runs %s", fw);
+                render(ip, on, sel, status, confirm_reboot);
+                continue;
+            }
             // Selecting the network already in use re-applies it rather than refusing: that is
             // how a console picks up a new CA or new host rules after the tool is updated.
             bool again = (want_openpak == on);
+            char store_note[96] = "";
             bool applied = want_openpak ? openpak_system_install(err, sizeof(err))
                                         : openpak_system_remove(err, sizeof(err));
             if (applied) {
@@ -231,12 +255,17 @@ int main(int argc, char **argv) {
                     int patches = openpak_patches_install();
                     // The News module only fetches channels it follows.
                     openpak_news_subscribe();
+                    // The store-install patch rides along with OpenPak. It is best-effort:
+                    // a pending or firmware-mismatched FS patch is a one-line note, not a
+                    // failure of the whole setup.
+                    openpak_store_install(store_note, sizeof(store_note));
                     applied = bundles > 0 && patches > 0;
                     if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
                 } else {
                     openpak_ca_remove(err, sizeof(err));
                     openpak_patches_remove();
                     openpak_news_unsubscribe();
+                    openpak_store_remove();
                 }
             }
             if (applied) applied = want_openpak ? openpak_enable(ip, err, sizeof(err))
@@ -244,9 +273,11 @@ int main(int argc, char **argv) {
             if (applied) {
                 on = want_openpak;
                 confirm_reboot = true;
-                snprintf(status, sizeof(status), again ? "%s setup updated. Reboot to apply?"
-                                                       : "%s selected. Reboot to apply?",
-                         want_openpak ? "OpenPak" : "Nintendo");
+                snprintf(status, sizeof(status), again ? "%s setup updated. Reboot to apply?%s%s"
+                                                       : "%s selected. Reboot to apply?%s%s",
+                         want_openpak ? "OpenPak" : "Nintendo",
+                         (want_openpak && store_note[0]) ? "  " : "",
+                         want_openpak ? store_note : "");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
             }

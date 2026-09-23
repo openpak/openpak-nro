@@ -21,7 +21,7 @@ SOURCES  := source
 INCLUDES := source
 APP_TITLE   := OpenPak
 APP_AUTHOR  := OpenPak
-APP_VERSION := 0.3.6
+APP_VERSION := 0.3.7
 # romfs carries the CA the console's browser must trust; there is no way to fetch it before
 # the console trusts us.
 ROMFS    := romfs
@@ -45,7 +45,7 @@ export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
 # One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c system_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
+UI_SKIP  := hosts_test.c system_test.c installtrust_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
 CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -77,6 +77,8 @@ clean:
 test:
 	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/policy.c source/ca.c source/hosts_test.c \
 		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_hosts_test
+	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_it_test source/installtrust.c source/installtrust_test.c && /tmp/openpak_it_test
+	@python3 tools/test-patches.py
 	@python3 tools/test-system.py
 
 else
