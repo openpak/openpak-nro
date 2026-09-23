@@ -5,6 +5,13 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- failure reports: when an install or remove fails (hosts, CA, patch or system
+  writes), the display will not start, or the NRO crashes, a small report is
+  saved under /switch/openpak/reports (at most 8) and the user is asked before
+  anything is sent to openpak.org: Send / Don't send / Always / Never, with the
+  last two remembered in /switch/openpak/reports.txt. Reports from an earlier
+  run (e.g. a crash) are offered at the next launch. Sent with libcurl over the
+  console's ssl service; no account token is sent.
 - firmware gate: OpenPak refuses to install unless the console runs 22.5.0.
   Everything it installs is derived from that firmware, so another version is
   refused before a single file is written ("OpenPak requires firmware 22.5.0 —

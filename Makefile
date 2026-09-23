@@ -28,14 +28,14 @@ ROMFS    := romfs
 
 PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
 ARCH    := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
-CFLAGS  := -g -Wall -Wextra -O2 -ffunction-sections $(ARCH) $(DEFINES) \
+CFLAGS  := -g -Wall -Wextra -O2 -ffunction-sections $(ARCH) $(DEFINES) -DOPENPAK_VERSION=\"$(APP_VERSION)\" \
            $(shell $(PKGCONF) --cflags freetype2 2>/dev/null) -D__SWITCH__ $(INCLUDE)
 LDFLAGS  = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 # Let pkg-config resolve the SDL2/FreeType/HarfBuzz chain — hand-written link orders rot
 # every time a portlib changes what it depends on.
 # FreeType only: text is rasterised into the framebuffer, so there is no SDL/EGL/mesa here and
 # the NRO loads in applet mode.
-LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs freetype2 2>/dev/null)) -ljson-c -lnx -lm
+LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs freetype2 2>/dev/null)) -lcurl -lz -ljson-c -lnx -lm
 LIBDIRS := $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -45,7 +45,7 @@ export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
 # One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c system_test.c installtrust_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
+UI_SKIP  := hosts_test.c system_test.c installtrust_test.c report_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
 CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -78,6 +78,8 @@ test:
 	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/policy.c source/ca.c source/hosts_test.c \
 		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_hosts_test
 	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_it_test source/installtrust.c source/installtrust_test.c && /tmp/openpak_it_test
+	@cc -Wall -Wextra -o /tmp/openpak_report_test source/report.c source/report_test.c \
+		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_report_test
 	@python3 tools/test-patches.py
 	@python3 tools/test-system.py
 
