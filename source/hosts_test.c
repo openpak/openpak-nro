@@ -165,6 +165,27 @@ int main(void) {
         assert(openpak_active_policy()->source == OPENPAK_SOURCE_BUILTIN);
         assert(strstr(openpak_policy_problem(), "conntest.nintendo.net"));
 
+        // A bundle large enough to push the hosts file past what Atmosphere loads is
+        // refused before any write: ams_mitm would otherwise abort at boot.
+        {
+            FILE *h = fopen(file, "wb"); fputs("192.168.1.50 example.invalid\n", h); fclose(h);
+            f = fopen(bundle, "wb");
+            fputs("{\"schema_version\":2,\"platform\":\"switch\",\"rules\":[", f);
+            for (int i = 0; i < 450; i++)
+                fprintf(f, "%s{\"action\":\"redirect\",\"match\":{\"exact\":"
+                        "\"host-%03d.a-very-long-label-to-fill-the-file.another-long-label.nintendo.net\"}}",
+                        i ? "," : "", i);
+            fputs("]}", f);
+            fclose(f);
+            openpak_policy_reload();
+            assert(openpak_active_policy()->source == OPENPAK_SOURCE_CACHE);
+            assert(!openpak_enable("10.0.0.7", err, sizeof(err)));
+            assert(strstr(err, "Atmosphere refuses"));
+            after = read_all(file);
+            assert(!strstr(after, OPENPAK_BEGIN));                          // nothing written
+            assert(strstr(after, "192.168.1.50 example.invalid"));
+        }
+
         // A bundle that is simply absent is the ordinary state, not a problem to report.
         remove(bundle);
         openpak_policy_reload();

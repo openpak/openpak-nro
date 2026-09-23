@@ -29,6 +29,10 @@ of truth; this file is the readable summary.
   test), .among.us, .photonengine.io, .exitgames.com, .demonware.net, .epicgames.dev,
   .ea.com, .xboxlive.com, .live.com, .mojang.com, .microsoft.com. The fallback mirrors
   switch/stable sequence 5, published 2026-09-23.
+- hosts: enable refuses, before writing anything, a hosts file of 32 KB or more.
+  ams_mitm aborts at boot on one that size, and a console that fatals before the
+  menu can only be fixed from a PC; the parser allowed bundles large enough to
+  get there.
 
 
 ## v0.3.5 — 2026-09-22
