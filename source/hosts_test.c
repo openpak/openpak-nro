@@ -37,10 +37,10 @@ int main(void) {
     assert(openpak_enabled());
 
     char *after = read_all(file);
-    assert(strstr(after, "10.0.0.7 *.five.nintendo.net"));
+    assert(strstr(after, "10.0.0.7 *.nintendo.net"));
     assert(strstr(after, "192.168.1.50 example.invalid"));     // pre-existing line kept
-    assert(strstr(after, "10.0.0.7 accounts.nintendo.com"));   // our entries written
-    assert(strstr(after, "10.0.0.7 *.s.n.srv.nintendo.net"));  // every NEX game server
+    assert(strstr(after, "10.0.0.7 *.nintendo.com"));          // our entries written
+    assert(strstr(after, "10.0.0.7 nintendo.net"));            // the apex too
     assert(strstr(after, OPENPAK_BEGIN) && strstr(after, OPENPAK_END));
 
     // Enabling twice must replace the block, not stack two copies.
@@ -48,7 +48,7 @@ int main(void) {
     after = read_all(file);
     const char *first = strstr(after, OPENPAK_BEGIN);
     assert(first && !strstr(first + 1, OPENPAK_BEGIN));
-    assert(strstr(after, "10.0.0.8 accounts.nintendo.com") && !strstr(after, "10.0.0.7 "));
+    assert(strstr(after, "10.0.0.8 *.nintendo.com") && !strstr(after, "10.0.0.7 "));
 
     assert(openpak_disable(err, sizeof(err)));
     assert(!openpak_enabled());
@@ -69,7 +69,7 @@ int main(void) {
     assert(strstr(after, OPENPAK_DISABLED "10.9.9.9 accounts.nintendo.com"));   // exact name
     assert(strstr(after, OPENPAK_DISABLED "10.9.9.9 fro-3.hac"));               // wildcard match
     assert(strstr(after, "192.168.1.50 example.invalid"));                      // unrelated line kept
-    assert(strstr(after, "10.0.0.7 accounts.nintendo.com"));
+    assert(strstr(after, "10.0.0.7 *.nintendo.com"));
 
     // Going back to Nintendo reverts everything we did: our block gone, their lines live again.
     assert(openpak_disable(err, sizeof(err)));
@@ -138,7 +138,7 @@ int main(void) {
         assert(strstr(after, "10.0.0.7 apex.net"));             // include_apex names the apex too
         assert(strstr(after, "203.0.113.9 nat2.newgame.net"));  // an override keeps its address
         assert(!strstr(after, "conntest"));                     // passthrough is never written
-        assert(!strstr(after, "accounts.nintendo.com"));        // the compiled list is not in use
+        assert(!strstr(after, "nintendo"));                     // the compiled list is not in use
         assert(openpak_disable(err, sizeof(err)));
 
         // A bundle needing something this build cannot do is refused whole and reported,

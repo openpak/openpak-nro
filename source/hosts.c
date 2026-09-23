@@ -12,52 +12,46 @@
 #define ROMFS_POLICY "romfs:/openpak/policy.json"
 #endif
 
-// The last resort, used only when neither bundle can be read: the names OpenPak served
+// The last resort, used only when neither bundle can be read: what OpenPak redirected
 // when this NRO was built. It exists so a console with a corrupt SD card and a romfs
-// read error still reaches the network rather than nothing — "stale beats broken".
+// read error still reaches the network rather than nothing -- "stale beats broken".
+//
+// It mirrors the shape the published bundle emits, on purpose. An earlier version of
+// this list named twenty-seven individual services while the bundle redirected whole
+// families, so a console that fell back here behaved measurably differently from one
+// that did not, in a way nothing on screen would have explained.
 //
 // Do not add a title here. The bundle is where hostnames belong now; this list is
-// frozen deliberately, and every entry in it is one the server also sends.
+// frozen deliberately, and a family already covers any new name under it.
 //
-// The names researched but not served -- Demonware, Epic, EA, Xbox Live -- are not here
-// and are not in the bundle either. They never redirected anything; they were an
-// inventory, and an inventory belongs in prose. See docs/researched-hosts.md.
+// Redirecting a whole family means a console on OpenPak stops reaching Nintendo at all
+// -- system updates, the eShop CDN and the browser included, not only the services we
+// answer for. That is the intended behaviour for this project's audience, and it is why
+// choosing Nintendo has to be a complete revert. See README.md.
 static openpak_rule builtin_rules[] = {
-    // BAAS + Nintendo Account (login, device accounts, link)
-    {"*.baas.nintendo.com", ""},
-    {"accounts.nintendo.com", ""},
-    {"api.accounts.nintendo.com", ""},
-    {"cdn.accounts.nintendo.com", ""},
-    {"*.ndas.srv.nintendo.net", ""},        // device/application auth
-    {"*.penne.srv.nintendo.net", ""},       // push (Penne)
-    {"*.five.nintendo.net", ""},            // native friend-invitation applet
-    {"gw.hac.lp1.vermillion.srv.nintendo.net", ""},
-    {"beach.hac.lp1.eshop.nintendo.net", ""},
-    {"capi.lp1.op2.nintendo.net", ""},
-    {"bcat-topics-lp1.cdn.nintendo.net", ""},   // News catalog/detail/icon
-    {"*.dragons.nintendo.net", ""},         // licence service, contacted during account setup
-    {"*.scsi.srv.nintendo.net", ""},        // save-data cloud
-    {"*.t.npln.srv.nintendo.net", ""},      // per-title NPLN tenants
-    // NAT check (Pia NatDetection). The console needs two responders on two different
-    // public addresses, so the second one names its own.
-    {"nncs1-lp1.n.n.srv.nintendo.net", ""},
+    // The three Nintendo-side families and their apexes. Everything the console asks
+    // Nintendo for -- BAAS, dauth, Penne, NPLN, NEX, BCAT, save data, the account
+    // site -- lives under one of these.
+    {"*.nintendo.net", ""},
+    {"nintendo.net", ""},
+    {"*.nintendo.com", ""},
+    {"nintendo.com", ""},
+    // Diablo II: Resurrected. The whole family because geo decides which region the
+    // title dials, and a console that geolocates to EU would otherwise reach nothing.
+    {"*.battle.net", ""},
+    {"battle.net", ""},
+    // The NAT check probes two addresses from one socket and reads the console's NAT
+    // type from what each saw. Both collapsing onto one address is a type it cannot
+    // determine, so the second responder names its own box.
     {"nncs2-lp1.n.n.srv.nintendo.net", "145.241.228.207"},
-    {"*.s.n.srv.nintendo.net", ""},         // NEX game servers, by suffix
-    {"*.acbaa.srv.nintendo.net", ""},       // Animal Crossing web API
-    // Photon: titles on Photon Realtime/Fusion resolve the name server themselves and
-    // never touch a Nintendo host.
-    {"*.photonengine.io", ""},
-    {"*.exitgames.com", ""},
-    // Diablo II: Resurrected -- geo picks the region, telemetry-in takes the client's
-    // events, account issues the session, *.actual is the bgs gateway on 1119.
-    {"geo.battle.net", ""},
-    {"telemetry-in.battle.net", ""},
-    {"account.battle.net", ""},
-    {"*.actual.battle.net", ""},
-    // Among Us -- which region name the Switch build picks is uncaptured, so all three.
+    // Among Us sits outside every Nintendo family; which region name the Switch build
+    // picks is uncaptured, so all three.
     {"matchmaker.among.us", ""},
     {"matchmaker-eu.among.us", ""},
     {"matchmaker-as.among.us", ""},
+    // Photon's name server, and only it: it answers with the master and game server
+    // addresses itself, so redirecting the rest of the family buys nothing.
+    {"ns.photonengine.io", ""},
 };
 
 static openpak_policy builtin_policy = {

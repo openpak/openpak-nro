@@ -17,6 +17,14 @@ of truth; this file is the readable summary.
   console running the compiled fallback no longer looks current
 - release: a tagged build that resolves no bundle fails instead of publishing
   the fallback
+- hosts: the compiled fallback mirrors the shape the published bundle emits.
+  It named twenty-seven individual services while the bundle redirects whole
+  families, so a console falling back to it behaved measurably differently
+  from one that did not, with nothing on screen to explain why.
+- hosts: a console on OpenPak no longer reaches Nintendo at all — the claimed
+  families cover system updates, the eShop CDN and the browser, not only the
+  services OpenPak answers for. Intended for this project's audience, and the
+  reason choosing Nintendo is a complete revert. See README.md.
 
 
 ## v0.3.5 — 2026-09-22
