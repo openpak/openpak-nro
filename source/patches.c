@@ -12,10 +12,13 @@
 //   exefs_patches/disable_ca_verification        — the ssl sysmodule, for system services
 //
 //   exefs_patches/openpak_bcat_key               — BCAT verifies News containers with OpenPak's key
-//   exefs_patches/openpak_news_no_dauth          — News fetches its catalog without a Nintendo edge token
+//   exefs_patches/openpak_news_no_dauth          — News memory download skips the Nintendo edge token
+//   exefs_patches/openpak_news_list_no_dauth     — the News list and titles/topics fetches skip it too
 //
-// The first two are community patches (upstream exefs_patches repositories); the News pair
-// comes from news/tools/news-patch and was proven on hardware by the News probe (v0.19).
+// The first two are community patches (upstream exefs_patches repositories); the News set
+// comes from news/tools/news-patch. The key and memory-download patches were proven on
+// hardware by the News probe (v0.19); the list patch skips the same edge-token helper before
+// the /v1/list/ and titles/<tid>/topics requests, which otherwise abort against OpenPak.
 // All are keyed by build id: a console uses whichever file matches the build it is running,
 // so the whole set ships and the console picks. Without the browser one, no certificate we
 // install is ever consulted; without the News pair, News stays silent on OpenPak.
@@ -28,6 +31,8 @@ static const char *const patch_sets[][2] = {
      "/atmosphere/exefs_patches/openpak_bcat_key"},
     {"romfs:/patches/exefs_patches/openpak_news_no_dauth",
      "/atmosphere/exefs_patches/openpak_news_no_dauth"},
+    {"romfs:/patches/exefs_patches/openpak_news_list_no_dauth",
+     "/atmosphere/exefs_patches/openpak_news_list_no_dauth"},
 };
 static const int patch_set_count = (int)(sizeof(patch_sets) / sizeof(patch_sets[0]));
 

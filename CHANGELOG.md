@@ -5,6 +5,22 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- news: follow OpenPak channels with SetSubscriptionStatus value 2 (subscribed)
+  instead of 1. On 22.5.0 status 1 means unsubscribed, so the module never
+  fetched our topics and refused to store their records (0xd47d). Selecting
+  Nintendo now forgets our topics (value 0) rather than leaving them listed.
+- news: only the bare topic-id filter is used now; the two `topic_id='…'`
+  spellings always returned 0x47d against the 22.5.0 module and are dropped.
+- news: new exefs patch `openpak_news_list_no_dauth` skips the Nintendo edge
+  token before the News list fetch (bcat module 0x117284) and the titles/topics
+  auto-subscribe fetch (0x113f9c), the same way `openpak_news_no_dauth` skips it
+  for the memory download. Both otherwise abort against OpenPak, which mints no
+  token. Keyed by BCAT build id, so other firmwares ignore it.
+- ca: corrected the browser-CA comment — 22.5.0's BrowserDll has no numbered
+  `romfs/0/browser` directory; its roots are `browser/RootCaEtc.pem` and
+  `browser/RootCaSdkAdditional.pem`. Both path layouts are still written
+  (harmless where the directory is absent).
+
 - hosts: the managed block is generated from the signed v2 platform bundle
   (PRD universal-tls-forwarding/05 SETUP-001) instead of a table compiled into
   the NRO — SD cache, then the bundle this NRO shipped with, then a frozen
