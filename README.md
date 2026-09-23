@@ -89,7 +89,21 @@ firmware, and it ships **only once verified on hardware**. Until then the step i
 (kip_patches via fusee, since this console boots hekate → `pkg3=`), the candidate
 analysis, and the exact hardware test and SD-reader recovery procedure.
 
-## Using it
+## Failure reports
+
+When this tool fails — an install or remove that stopped (hosts, CA, patch or system
+writes), a display that will not start, a crash of the NRO itself — it saves a small
+report under `/switch/openpak/reports/` (at most 8; the oldest go first) and asks before
+sending it to `https://openpak.org/api/v1/crash-reports`: **A** Send, **B** Don't send,
+**X** Always, **Y** Never. Always/Never are remembered in `/switch/openpak/reports.txt`
+(`always`, `never` or `ask`). A report saved by an earlier run, e.g. before a crash, is
+offered at the next launch. Nothing is ever sent without that yes.
+
+A report is the NRO version, firmware and Atmosphère version, what was being done and the
+error text (for a crash: the exception type and the faulting offsets). No account token or
+console identifier is sent. The pure half (JSON, multipart body, queue, setting) is
+`source/report.c`, checked by `make test`; the console half is `source/crash.c`.
+
 
 Two entries, one choice:
 

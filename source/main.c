@@ -14,6 +14,7 @@
 #include "hosts.h"
 #include "news.h"
 #include "installtrust.h"
+#include "crash.h"
 #include "logo.h"
 #include "text.h"
 
@@ -120,7 +121,7 @@ static void draw_item(int x, int y, int w, int h, bool selected,
         txt_draw(x + w - 26, y + h / 2 - PX_BODY / 2 - 2, PX_BODY, TXT_RIGHT, value_color, "%s", value);
 }
 
-static void render(const char *ip, bool on, int sel, const char *status, bool confirming) {
+static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
     const int margin = 72;
     const int card_w = GFX_W - margin * 2;
 
@@ -158,7 +159,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
     int msg_y = card_y + card_h + 26;
     if (status[0]) {
         gfx_rounded(margin, msg_y, card_w, 56, 12, RAISED);
-        gfx_rounded_outline(margin, msg_y, card_w, 56, 12, confirming ? WARN : ACCENT);
+        gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking) ? WARN : ACCENT);
         txt_draw(margin + 24, msg_y + 16, PX_BODY, TXT_LEFT, INK, "%s", status);
     } else {
         txt_draw(margin, msg_y + 16, PX_LABEL, TXT_LEFT, MUTED,
@@ -178,7 +179,12 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
     // Footer
     gfx_rect(margin, 604, card_w, 1, LINE);
     int x = margin;
-    if (confirming) {
+    if (asking) {
+        x += draw_hint(x, 628, "A", "Send");
+        x += draw_hint(x, 628, "B", "Don't send");
+        x += draw_hint(x, 628, "X", "Always");
+        draw_hint(x, 628, "Y", "Never");
+    } else if (confirming) {
         x += draw_hint(x, 628, "A", "Reboot now");
         draw_hint(x, 628, "B", "Later");
     } else {
@@ -193,8 +199,13 @@ int main(int argc, char **argv) {
     (void)argc; (void)argv;
     romfsInit();          // the CA bundle we ship lives in romfs:/
     plInitialize(PlServiceType_User);
-    if (!gfx_init()) { plExit(); return 1; }
-    if (!txt_init()) { gfx_exit(); plExit(); return 1; }
+    openpak_report_init("sdl");
+    // A display that will not start is saved and offered on the next launch.
+    if (!gfx_init()) { openpak_report_failure("startup", NULL, "Could not start the display"); plExit(); return 1; }
+    if (!txt_init()) {
+        openpak_report_failure("startup", NULL, "Could not load the system font");
+        gfx_exit(); plExit(); return 1;
+    }
 
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     PadState pad;
@@ -216,13 +227,31 @@ int main(int argc, char **argv) {
                      "Warning: OpenPak is on but this console runs %s, not " OPENPAK_FIRMWARE
                      ". Select Nintendo to remove.", fw);
     }
+    // Reports saved by an earlier run (a crash, a failed setup) are offered now.
+    bool asking = openpak_report_offer(status, sizeof(status), "OpenPak saved a problem report last time.");
 
     while (appletMainLoop()) {
         padUpdate(&pad);
         u64 down = padGetButtonsDown(&pad);
         char err[128] = "";
 
-        if (confirm_reboot) {
+        if (asking) {
+            if (down & (HidNpadButton_A | HidNpadButton_X)) {
+                if (down & HidNpadButton_X) openpak_report_set_consent(REPORT_ALWAYS);
+                snprintf(status, sizeof(status), "Sending report...");
+                render(ip, on, sel, status, false, false);
+                openpak_report_send_all(status, sizeof(status));
+                asking = false;
+            } else if (down & HidNpadButton_B) {
+                openpak_report_discard_all();
+                snprintf(status, sizeof(status), "Report discarded.");
+                asking = false;
+            } else if (down & HidNpadButton_Y) {
+                openpak_report_set_consent(REPORT_NEVER);
+                snprintf(status, sizeof(status), "Reports turned off. Nothing was sent.");
+                asking = false;
+            }
+        } else if (confirm_reboot) {
             if (down & HidNpadButton_A) reboot_console();
             else if (down & HidNpadButton_B) { confirm_reboot = false; status[0] = '\0'; }
         } else if (down & (HidNpadButton_Up | HidNpadButton_StickLUp)) {
@@ -240,7 +269,7 @@ int main(int argc, char **argv) {
             if (want_openpak && !openpak_firmware_supported(fw, sizeof(fw))) {
                 snprintf(status, sizeof(status),
                          "OpenPak requires firmware " OPENPAK_FIRMWARE " — this console runs %s", fw);
-                render(ip, on, sel, status, confirm_reboot);
+                render(ip, on, sel, status, confirm_reboot, asking);
                 continue;
             }
             // Selecting the network already in use re-applies it rather than refusing: that is
@@ -280,9 +309,11 @@ int main(int argc, char **argv) {
                          want_openpak ? store_note : "");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
+                openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);
+                asking = openpak_report_offer(status, sizeof(status), status);
             }
         }
-        render(ip, on, sel, status, confirm_reboot);
+        render(ip, on, sel, status, confirm_reboot, asking);
     }
 
     txt_exit();

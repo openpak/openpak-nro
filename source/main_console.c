@@ -8,6 +8,7 @@
 #include "hosts.h"
 #include "news.h"
 #include "installtrust.h"
+#include "crash.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -69,7 +70,7 @@ static void reboot_console(void) {
 // installs everything together — hosts, CA, News patches, the store patch.
 enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 
-static void draw(const char *ip, bool on, int sel, const char *status, bool confirming) {
+static void draw(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
     const char *labels[IT_COUNT] = {"Nintendo", "OpenPak"};
     char values[IT_COUNT][64];
     for (int i = 0; i < IT_COUNT; i++)
@@ -92,7 +93,9 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
     if (pol->sequence) printf(", revision %lld", pol->sequence);
     printf(")\n\n");
     if (openpak_policy_problem()[0]) printf("  \x1b[33m%s\x1b[0m\n\n", openpak_policy_problem());
-    if (confirming)
+    if (asking)
+        printf("  \x1b[33m%s\x1b[0m\n\n  [A] send   [B] don't send   [X] always   [Y] never\n", status);
+    else if (confirming)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] reboot now   [B] later\n", status[0] ? status : "Reboot to apply?");
     else {
         if (status[0]) printf("  \x1b[33m%s\x1b[0m\n\n", status);
@@ -106,6 +109,7 @@ int main(int argc, char **argv) {
     (void)argc; (void)argv;
     romfsInit();          // the CA bundle we ship lives in romfs:/
     consoleInit(NULL);
+    openpak_report_init("console");
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     PadState pad;
     padInitializeDefault(&pad);
@@ -124,7 +128,9 @@ int main(int argc, char **argv) {
                      "Warning: OpenPak is on but firmware is %s, not " OPENPAK_FIRMWARE
                      ". Select Nintendo to remove.", fw);
     }
-    draw(ip, on, sel, status, confirm_reboot);
+    // Reports saved by an earlier run (a crash, a failed setup) are offered now.
+    bool asking = openpak_report_offer(status, sizeof(status), "OpenPak saved a problem report last time.");
+    draw(ip, on, sel, status, confirm_reboot, asking);
 
     while (appletMainLoop()) {
         padUpdate(&pad);
@@ -132,11 +138,27 @@ int main(int argc, char **argv) {
         if (!down) { consoleUpdate(NULL); continue; }
 
         char err[128] = "";
+        if (asking) {
+            if (down & (HidNpadButton_A | HidNpadButton_X)) {
+                if (down & HidNpadButton_X) openpak_report_set_consent(REPORT_ALWAYS);
+                draw(ip, on, sel, "Sending report...", false, false);
+                openpak_report_send_all(status, sizeof(status));
+            } else if (down & HidNpadButton_B) {
+                openpak_report_discard_all();
+                snprintf(status, sizeof(status), "Report discarded.");
+            } else if (down & HidNpadButton_Y) {
+                openpak_report_set_consent(REPORT_NEVER);
+                snprintf(status, sizeof(status), "Reports turned off. Nothing was sent.");
+            } else { consoleUpdate(NULL); continue; }
+            asking = false;
+            draw(ip, on, sel, status, confirm_reboot, asking);
+            continue;
+        }
         if (confirm_reboot) {
             if (down & HidNpadButton_A) reboot_console();
             else if (down & HidNpadButton_B) { confirm_reboot = false; status[0] = '\0'; }
             else { consoleUpdate(NULL); continue; }
-            draw(ip, on, sel, status, confirm_reboot);
+            draw(ip, on, sel, status, confirm_reboot, asking);
             continue;
         }
 
@@ -152,7 +174,7 @@ int main(int argc, char **argv) {
             if (want_openpak && !openpak_firmware_supported(fw, sizeof(fw))) {
                 snprintf(status, sizeof(status),
                          "OpenPak requires firmware " OPENPAK_FIRMWARE " - this console runs %s", fw);
-                draw(ip, on, sel, status, confirm_reboot);
+                draw(ip, on, sel, status, confirm_reboot, asking);
                 continue;
             }
             // Re-selecting the active network re-applies it, so an updated CA or host list
@@ -190,9 +212,11 @@ int main(int argc, char **argv) {
                          want_openpak ? store_note : "");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
+                openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);
+                asking = openpak_report_offer(status, sizeof(status), status);
             }
         }
-        draw(ip, on, sel, status, confirm_reboot);
+        draw(ip, on, sel, status, confirm_reboot, asking);
     }
 
     consoleExit(NULL);
