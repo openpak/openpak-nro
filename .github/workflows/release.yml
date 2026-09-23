@@ -1,21 +1,20 @@
 name: release
 
-# Every push to main builds both NROs. A v* tag publishes them as release
-# assets, which is what a console owner downloads. The self-hosted build keeps
+# A vX.Y.Z tag builds both NROs and publishes them as release assets, which
+# is what a console owner downloads; pushes to main build nothing. The self-hosted build keeps
 # all intermediate files in one job so GitHub artifact storage is not needed.
 #
 # The `build` job includes the build-time bundle resolution of PRD
 # universal-tls-forwarding/03 (G2 pilot): once the switch/staging
 # registration exists, releases fetch the signed bundle and verify it before
 # anything is compiled in. It runs only when OPENPAK_CLIENT_HASH is set as a
-# repository variable — an unset hash keeps the push builds on the checked-in
+# repository variable — an unset hash keeps manual builds on the checked-in
 # fixtures, the disabled path of the variable contract. Certification is
 # never inferred from a variable being set; the certified fetch runs only
 # here, with the CI identity proof the registry accepts.
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 permissions:
@@ -103,7 +102,7 @@ jobs:
           elif [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
             # Since the hosts block is generated from the bundle (PRD 05 SETUP-001), a
             # release without one would ship consoles the frozen compiled fallback while
-            # looking like any other build. A push may do that; a tag may not.
+            # looking like any other build. A manual run may do that; a tag may not.
             echo "::error::tagged release resolved no bundle; refusing to publish the fallback"
             exit 1
           else
