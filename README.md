@@ -65,6 +65,30 @@ inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no 
 certificate can extend. The server sides that one as `ws://` instead, so no certificate is
 involved — see `servers/battlenet/docs/d2r-protocol.md`.
 
+## Store installs and the firmware gate (0.3.7)
+
+OpenPak targets exactly one system firmware, **22.5.0**. Everything it installs —
+host rules, the browser/system CA, the News patches and the store-install patch —
+is derived from that firmware, so selecting OpenPak on any other version is
+refused before a single file is written, with a message naming the version the
+console actually runs. Selecting **Nintendo** removes cleanly on *any* firmware,
+so a console updated after installing can always clean up; a console left on
+OpenPak after an update is warned at launch and pointed at that fix.
+
+Selecting OpenPak also installs the console-trust patch that lets an OpenPak-store
+title install and launch. The store serves only homebrew and its updates, all
+packaged **without a rights ID** (key-area crypto, no tickets), so no ES/ticket
+patch is involved, and no loader/ACID patch either — Atmosphère replaces the
+stock loader with its own, which does not enforce the NPDM ACID signature. The
+only console patch needed is an **FS NCA-header-signature** kip patch.
+
+That FS patch is gated by the FS KIP hash so it can never apply to another
+firmware, and it ships **only once verified on hardware**. Until then the step is
+*pending*: it writes nothing for FS and says so. See
+[`docs/install-trust.md`](docs/install-trust.md) for the derivation, delivery
+(kip_patches via fusee, since this console boots hekate → `pkg3=`), the candidate
+analysis, and the exact hardware test and SD-reader recovery procedure.
+
 ## Using it
 
 Two entries, one choice:

@@ -5,6 +5,24 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- firmware gate: OpenPak refuses to install unless the console runs 22.5.0.
+  Everything it installs is derived from that firmware, so another version is
+  refused before a single file is written ("OpenPak requires firmware 22.5.0 —
+  this console runs X.Y.Z"). Removal (selecting Nintendo) still works on any
+  firmware, and a console that is on OpenPak but has been updated off 22.5.0 is
+  warned at launch and pointed at the fix.
+- store installs: selecting OpenPak now also installs the console-trust patch
+  that lets an OpenPak-store title (homebrew, packaged without a rights ID)
+  install and launch. It is part of the OpenPak experience, not a separate
+  toggle; selecting Nintendo removes exactly the files it wrote. No ES/ticket
+  patch (no rights ID) and no loader/ACID patch (Atmosphère's own loader does
+  not enforce ACID) are involved — only an FS NCA-header-signature kip patch.
+- store installs: the FS patch is gated by the FS KIP hash (536d9384…) so it can
+  never apply to another firmware, and ships only once verified on hardware.
+  Until then the step is pending: it writes nothing for FS and says
+  "FS patch pending hardware verification". See docs/install-trust.md and the
+  candidate under docs/install-trust/.
+
 - news: follow OpenPak channels with SetSubscriptionStatus value 2 (subscribed)
   instead of 1. On 22.5.0 status 1 means unsubscribed, so the module never
   fetched our topics and refused to store their records (0xd47d). Selecting
