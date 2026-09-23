@@ -80,29 +80,101 @@ int main(void) {
     assert(strstr(after, "10.9.9.9 fro-3.hac.lp1.penne.srv.nintendo.net"));
     assert(strstr(after, "192.168.1.50 example.invalid"));
 
-    // Researched-but-unserved names ship inert. Redirecting one would take a title that
-    // works today offline, so they must be written commented and must not claim a conflict.
+    // Names we researched but never served are not written at all now: the block is
+    // generated from the bundle, and an inert line is data no console ever acts on.
+    // docs/researched-hosts.md is where that inventory lives.
     f = fopen(file, "wb");
     fputs("10.9.9.9 lavender-switch-auth3.prod.demonware.net\n", f);
     fclose(f);
 
     assert(openpak_enable("10.0.0.7", err, sizeof(err)));
     after = read_all(file);
-    assert(strstr(after, "# 10.0.0.7 lavender-switch-auth3.prod.demonware.net"));  // ours, inert
-    assert(!strstr(after, "\n10.0.0.7 lavender-switch-auth3"));                    // never live
-    assert(strstr(after, "# 10.0.0.7 api.epicgames.dev"));
-    assert(strstr(after, "# 10.0.0.7 *.ea.com"));
-    assert(strstr(after, OPENPAK_RESEARCH_NOTE));
-    // Someone else's redirect for a name we deliberately leave alone stays untouched: we only
-    // claim hosts we serve.
+    assert(!strstr(after, "10.0.0.7 lavender-switch-auth3"));   // never ours to write
+    assert(!strstr(after, "epicgames"));
+    assert(!strstr(after, "ea.com"));
+    // Someone else's redirect for a name we deliberately leave alone stays untouched: we
+    // only claim hosts we serve.
     assert(strstr(after, "10.9.9.9 lavender-switch-auth3.prod.demonware.net"));
     assert(!strstr(after, OPENPAK_DISABLED "10.9.9.9 lavender"));
-    assert(openpak_hosts_active() < openpak_hosts_count);
 
     assert(openpak_disable(err, sizeof(err)));
     after = read_all(file);
-    assert(!strstr(after, "epicgames"));                        // the whole block goes
     assert(strstr(after, "10.9.9.9 lavender-switch-auth3"));    // theirs was never ours to move
+
+    // A bundle on the SD card replaces the compiled list outright. This is the whole
+    // point: adding a forwarder becomes a server deploy, not a new NRO on every SD card.
+    {
+        assert(openpak_active_policy()->source == OPENPAK_SOURCE_BUILTIN);
+
+        snprintf(dir, sizeof(dir), "%s/switch", root);         mkdir(dir, 0755);
+        snprintf(dir, sizeof(dir), "%s/switch/openpak", root); mkdir(dir, 0755);
+        char bundle[320];
+        snprintf(bundle, sizeof(bundle), "%s/switch/openpak/policy.json", root);
+
+        f = fopen(bundle, "wb");
+        fputs("{\"schema_version\":2,\"platform\":\"switch\",\"sequence\":7,"
+              "\"required_capabilities\":[\"dns.suffix.v1\",\"dns.exact.v1\",\"dns.override.v1\"],"
+              "\"rules\":["
+              "{\"action\":\"redirect\",\"match\":{\"suffix\":\".newgame.net\"}},"
+              "{\"action\":\"redirect\",\"match\":{\"exact\":\"one.newgame.net\"}},"
+              "{\"action\":\"redirect\",\"match\":{\"suffix\":\".apex.net\",\"include_apex\":true}},"
+              "{\"action\":\"redirect\",\"match\":{\"exact\":\"nat2.newgame.net\"},"
+              "\"destination\":{\"ipv4\":\"203.0.113.9\"}},"
+              "{\"action\":\"passthrough\",\"match\":{\"exact\":\"conntest.elsewhere.net\"}}]}", f);
+        fclose(f);
+        openpak_policy_reload();
+
+        const openpak_policy *pol = openpak_active_policy();
+        assert(pol->source == OPENPAK_SOURCE_CACHE);
+        assert(pol->sequence == 7);
+        assert(pol->count == 5);            // the apex rule emits two lines, passthrough none
+
+        remove(file);
+        assert(openpak_enable("10.0.0.7", err, sizeof(err)));
+        after = read_all(file);
+        assert(strstr(after, "10.0.0.7 *.newgame.net"));        // a family becomes a wildcard
+        assert(strstr(after, "10.0.0.7 one.newgame.net"));
+        assert(strstr(after, "10.0.0.7 *.apex.net"));
+        assert(strstr(after, "10.0.0.7 apex.net"));             // include_apex names the apex too
+        assert(strstr(after, "203.0.113.9 nat2.newgame.net"));  // an override keeps its address
+        assert(!strstr(after, "conntest"));                     // passthrough is never written
+        assert(!strstr(after, "accounts.nintendo.com"));        // the compiled list is not in use
+        assert(openpak_disable(err, sizeof(err)));
+
+        // A bundle needing something this build cannot do is refused whole and reported,
+        // rather than applied in part.
+        f = fopen(bundle, "wb");
+        fputs("{\"schema_version\":2,\"platform\":\"switch\","
+              "\"required_capabilities\":[\"service.url.v1\"],"
+              "\"rules\":[{\"action\":\"redirect\",\"match\":{\"exact\":\"x.nintendo.net\"}}]}", f);
+        fclose(f);
+        openpak_policy_reload();
+        assert(openpak_active_policy()->source == OPENPAK_SOURCE_BUILTIN);
+        assert(strstr(openpak_policy_problem(), "service.url.v1"));
+
+        // So is another console's projection, and a passthrough a redirect would swallow.
+        f = fopen(bundle, "wb");
+        fputs("{\"schema_version\":2,\"platform\":\"wiiu\",\"rules\":"
+              "[{\"action\":\"redirect\",\"match\":{\"exact\":\"x.nintendo.net\"}}]}", f);
+        fclose(f);
+        openpak_policy_reload();
+        assert(openpak_active_policy()->source == OPENPAK_SOURCE_BUILTIN);
+
+        f = fopen(bundle, "wb");
+        fputs("{\"schema_version\":2,\"platform\":\"switch\",\"rules\":["
+              "{\"action\":\"redirect\",\"match\":{\"suffix\":\".nintendo.net\"}},"
+              "{\"action\":\"passthrough\",\"match\":{\"exact\":\"conntest.nintendo.net\"}}]}", f);
+        fclose(f);
+        openpak_policy_reload();
+        assert(openpak_active_policy()->source == OPENPAK_SOURCE_BUILTIN);
+        assert(strstr(openpak_policy_problem(), "conntest.nintendo.net"));
+
+        // A bundle that is simply absent is the ordinary state, not a problem to report.
+        remove(bundle);
+        openpak_policy_reload();
+        assert(openpak_active_policy()->source == OPENPAK_SOURCE_BUILTIN);
+        assert(openpak_policy_problem()[0] == '\0');
+    }
 
     // A console that had no hosts file before gets none back afterwards.
     remove(file);

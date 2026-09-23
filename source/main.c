@@ -160,6 +160,16 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
     } else {
         txt_draw(margin, msg_y + 16, PX_LABEL, TXT_LEFT, MUTED,
                  "Changes apply at boot — dns_mitm reads the hosts files then.");
+        // Say where the rules came from: "built in" means this console is running the
+        // frozen fallback, which looks identical from here and is not the same thing.
+        const openpak_policy *pol = openpak_active_policy();
+        if (pol->sequence)
+            txt_draw(margin, msg_y + 42, PX_LABEL, TXT_LEFT, MUTED,
+                     "%d host rules · %s · revision %lld", pol->count,
+                     openpak_source_name(pol->source), pol->sequence);
+        else
+            txt_draw(margin, msg_y + 42, PX_LABEL, TXT_LEFT, MUTED,
+                     "%d host rules · %s", pol->count, openpak_source_name(pol->source));
     }
 
     // Footer
