@@ -100,8 +100,14 @@ jobs:
             cp openpak-bundle/trust/ca.pem romfs/ca.pem
             rm -f romfs/ca.der # make regenerates it from the fetched CA
             echo "romfs carries the registry-verified bundle ($OPENPAK_CHANNEL)"
+          elif [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
+            # Since the hosts block is generated from the bundle (PRD 05 SETUP-001), a
+            # release without one would ship consoles the frozen compiled fallback while
+            # looking like any other build. A push may do that; a tag may not.
+            echo "::error::tagged release resolved no bundle; refusing to publish the fallback"
+            exit 1
           else
-            echo "no resolved bundle; building on the checked-in fixtures (disabled path)"
+            echo "no resolved bundle; building on the compiled fallback (disabled path)"
           fi
       - name: Build both NRO variants
         run: |

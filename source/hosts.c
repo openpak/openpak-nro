@@ -1,119 +1,104 @@
 #include "hosts.h"
+#include "policy.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-const openpak_host openpak_hosts[] = {
-    // ---- Served by OpenPak: redirected -------------------------------------------------
+// Where a fetched bundle is cached, and where the one this NRO shipped with lives.
+#define CACHE_POLICY "/switch/openpak/policy.json"
+#ifdef OPENPAK_HOST_TEST
+#define ROMFS_POLICY "romfs/openpak/policy.json"   // running on a PC, straight from the repo
+#else
+#define ROMFS_POLICY "romfs:/openpak/policy.json"
+#endif
+
+// The last resort, used only when neither bundle can be read: the names OpenPak served
+// when this NRO was built. It exists so a console with a corrupt SD card and a romfs
+// read error still reaches the network rather than nothing — "stale beats broken".
+//
+// Do not add a title here. The bundle is where hostnames belong now; this list is
+// frozen deliberately, and every entry in it is one the server also sends.
+//
+// The names researched but not served -- Demonware, Epic, EA, Xbox Live -- are not here
+// and are not in the bundle either. They never redirected anything; they were an
+// inventory, and an inventory belongs in prose. See docs/researched-hosts.md.
+static openpak_rule builtin_rules[] = {
     // BAAS + Nintendo Account (login, device accounts, link)
-    {"*.baas.nintendo.com", true},
-    {"accounts.nintendo.com", true},
-    {"api.accounts.nintendo.com", true},
-    {"cdn.accounts.nintendo.com", true},
-    // device/application auth
-    {"*.ndas.srv.nintendo.net", true},
-    // push (Penne), Vermillion, eShop beach, NSO membership
-    {"*.penne.srv.nintendo.net", true},
-    // Native friend-invitation applet (used by Outbound and other titles).
-    {"*.five.nintendo.net", true},
-    {"gw.hac.lp1.vermillion.srv.nintendo.net", true},
-    {"beach.hac.lp1.eshop.nintendo.net", true},
-    {"capi.lp1.op2.nintendo.net", true},
-    // News catalog/detail/icon: isolated signed-container hardware experiment.
-    {"bcat-topics-lp1.cdn.nintendo.net", true},
-    // licence service, contacted during account setup
-    {"*.dragons.nintendo.net", true},
-    // save-data cloud: the storage API, the policy host and the two blob hosts
-    {"*.scsi.srv.nintendo.net", true},
-    // per-title NPLN tenants
-    {"*.t.npln.srv.nintendo.net", true},
-    // NAT check (Pia NatDetection): 16-byte UDP probes to 10025/10125, the same protocol the
-    // Wii U and 3DS use, answered by nn-nncs. The console needs two responders on two
-    // different public addresses, so the second one names its own host.
-    {"nncs1-lp1.n.n.srv.nintendo.net", true},
-    {"nncs2-lp1.n.n.srv.nintendo.net", true, "145.241.228.207"},
-    // NEX game servers: auth is reached by g<id>-lp1.s.n.srv.nintendo.net through the edge
-    // on 443; the secure stage dials the station URL's raw IP instead. The whole suffix, so a
-    // newly served title needs no new build. An unserved title loses nothing by coming here:
-    // with BAAS redirected, its token is ours and Nintendo's server refuses it anyway
-    // (Kirby, 2026-09-19: 2306-0807 when its host alone still went to Nintendo).
-    {"*.s.n.srv.nintendo.net", true},
-    // Animal Crossing web API (island/user registration, profiles, NookLink
-    // sync): answered by nx-baas since 2026-09-21. Without this the console
-    // keeps reaching retail acbaa, which refuses the OpenPak-minted token
-    // and the game shows 2219-4001 (invalid authorization) on online entry.
-    {"*.acbaa.srv.nintendo.net", true},
-    // Photon: titles on Photon Realtime/Fusion (Outbound) resolve the name server themselves
-    // and never touch a Nintendo host, so without these the console still reaches Photon Cloud.
-    {"*.photonengine.io", true},
-    {"*.exitgames.com", true},
-
-    // Diablo II: Resurrected -- servers/battlenet answers all of these. Every name was seen
-    // resolving on a live run, in this order: geo picks the region, telemetry-in takes the
-    // client's events, account is the web login that issues the session (check_token), and
-    // *.actual is the bgs gateway on port 1119. Both regions are covered by the wildcard
-    // because geo decides which one the title dials, and a console that geolocates to EU
-    // would otherwise reach nothing.
-    //
-    // The game-server leg needs nothing here beyond the gateway name. It is the one
-    // connection the title does NOT put through the ssl sysmodule -- bgs-sdk carries its own
-    // OpenSSL with its own CA list, so the OpenPak CA this NRO installs cannot help it. That
-    // is handled on the server instead, by serving it as ws:// so no certificate is involved.
-    {"geo.battle.net", true},
-    {"telemetry-in.battle.net", true},
-    {"account.battle.net", true},
-    {"*.actual.battle.net", true},
-
-    // ---- Researched, not served: written commented out ---------------------------------
-    // Titles that reach a third party directly. Each name below was observed coming off a
-    // console or an emulator on a dated run, not guessed -- but OpenPak runs no replacement
-    // for any of them, so they ship inert: the inventory lives with the tool that would use
-    // it. Turn one on once something answers on the other side.
-    //
-    // These are not left off to protect a working title. On this project's actual audience --
-    // banned consoles and emulators -- most are already dead: the third party asks Nintendo to
-    // vouch for a token, and an OpenPak console has an OpenPak identity, not a Nintendo one.
-    //
-    // Crash Team Racing Nitro-Fueled -- Demonware (auth3 + LSG lobby), confirmed live
-    // 2026-08-31. Whether the live service accepts an OpenPak-identified console is untested;
-    // if it does, this title needs nothing from us.
-    {"lavender-switch-auth3.prod.demonware.net", false},
-    {"lavender-switch-lobby.prod.demonware.net", false},
-    // Among Us -- Innersloth's matchmaker, port 443. servers/among-us + Impostor answer all
-    // three region names on OpenPak (2026-09-11); which one the Switch build picks is uncaptured,
-    // so all three are redirected.
-    {"matchmaker.among.us", true},
-    {"matchmaker-eu.among.us", true},
-    {"matchmaker-as.among.us", true},
-    // Epic Online Services -- identity for Fall Guys and Among Us. Epic verifies the Nintendo
-    // token upstream, so an OpenPak-minted one cannot pass and a stub cannot stand in.
-    {"api.epicgames.dev", false},
-    // PvZ: Battle for Neighborville -- EA GOS/Blaze + Nucleus. The full host set is unknown
-    // (only spring18.gosredirector.ea.com and the signin hosts were seen), so this is the
-    // whole suffix, which is exactly why it must stay off.
-    {"*.ea.com", false},
-    // Minecraft Dungeons -- the confirmed Microsoft/Mojang inventory up to the sign-in screen,
-    // 2026-08-31. No Nintendo host is involved at all; this needs an xbox-live adapter, not a
-    // per-title server.
-    {"title.mgt.xboxlive.com", false},
-    // Diablo II: Resurrected's content depot. The title resolves it on every boot, but
-    // OpenPak serves nothing there, so redirecting it would blackhole content requests that
-    // today simply fail against Blizzard. On once something answers.
-    {"prod.depot.battle.net", false},
-    {"sisu.xboxlive.com", false},
-    {"login.live.com", false},
-    {"launchercontent.mojang.com", false},
-    {"vortex.data.microsoft.com", false},
+    {"*.baas.nintendo.com", ""},
+    {"accounts.nintendo.com", ""},
+    {"api.accounts.nintendo.com", ""},
+    {"cdn.accounts.nintendo.com", ""},
+    {"*.ndas.srv.nintendo.net", ""},        // device/application auth
+    {"*.penne.srv.nintendo.net", ""},       // push (Penne)
+    {"*.five.nintendo.net", ""},            // native friend-invitation applet
+    {"gw.hac.lp1.vermillion.srv.nintendo.net", ""},
+    {"beach.hac.lp1.eshop.nintendo.net", ""},
+    {"capi.lp1.op2.nintendo.net", ""},
+    {"bcat-topics-lp1.cdn.nintendo.net", ""},   // News catalog/detail/icon
+    {"*.dragons.nintendo.net", ""},         // licence service, contacted during account setup
+    {"*.scsi.srv.nintendo.net", ""},        // save-data cloud
+    {"*.t.npln.srv.nintendo.net", ""},      // per-title NPLN tenants
+    // NAT check (Pia NatDetection). The console needs two responders on two different
+    // public addresses, so the second one names its own.
+    {"nncs1-lp1.n.n.srv.nintendo.net", ""},
+    {"nncs2-lp1.n.n.srv.nintendo.net", "145.241.228.207"},
+    {"*.s.n.srv.nintendo.net", ""},         // NEX game servers, by suffix
+    {"*.acbaa.srv.nintendo.net", ""},       // Animal Crossing web API
+    // Photon: titles on Photon Realtime/Fusion resolve the name server themselves and
+    // never touch a Nintendo host.
+    {"*.photonengine.io", ""},
+    {"*.exitgames.com", ""},
+    // Diablo II: Resurrected -- geo picks the region, telemetry-in takes the client's
+    // events, account issues the session, *.actual is the bgs gateway on 1119.
+    {"geo.battle.net", ""},
+    {"telemetry-in.battle.net", ""},
+    {"account.battle.net", ""},
+    {"*.actual.battle.net", ""},
+    // Among Us -- which region name the Switch build picks is uncaptured, so all three.
+    {"matchmaker.among.us", ""},
+    {"matchmaker-eu.among.us", ""},
+    {"matchmaker-as.among.us", ""},
 };
-const int openpak_hosts_count = (int)(sizeof(openpak_hosts) / sizeof(openpak_hosts[0]));
 
-// ponytail: counted on demand rather than kept as a second hand-maintained constant that
-// could drift from the table above. Called twice, over ~25 entries.
-int openpak_hosts_active(void) {
-    int n = 0;
-    for (int i = 0; i < openpak_hosts_count; i++)
-        if (openpak_hosts[i].redirect) n++;
-    return n;
+static openpak_policy builtin_policy = {
+    builtin_rules,
+    (int)(sizeof(builtin_rules) / sizeof(*builtin_rules)),
+    0,                          // no revision: the fallback is not a published bundle
+    OPENPAK_SOURCE_BUILTIN,
+};
+
+static const openpak_policy *active;
+static openpak_policy *loaded;          // freed on reload; the builtin never is
+static char problem[192];
+
+// Best source that parses wins. A bundle that is present but unreadable is reported;
+// one that is simply absent is the ordinary state and says nothing.
+const openpak_policy *openpak_active_policy(void) {
+    if (active) return active;
+    problem[0] = '\0';
+
+    char path[320], err[160];
+    snprintf(path, sizeof(path), "%s%s", openpak_root, CACHE_POLICY);
+    loaded = openpak_policy_load(path, OPENPAK_SOURCE_CACHE, err, sizeof(err));
+    if (!loaded) {
+        if (err[0]) snprintf(problem, sizeof(problem), "downloaded bundle ignored: %s", err);
+        loaded = openpak_policy_load(ROMFS_POLICY, OPENPAK_SOURCE_ROMFS, err, sizeof(err));
+        if (!loaded && err[0] && !problem[0])
+            snprintf(problem, sizeof(problem), "bundled policy ignored: %s", err);
+    }
+    active = loaded ? loaded : &builtin_policy;
+    return active;
+}
+
+const char *openpak_policy_problem(void) {
+    openpak_active_policy();
+    return problem;
+}
+
+void openpak_policy_reload(void) {
+    if (loaded) openpak_policy_free(loaded);
+    loaded = NULL;
+    active = NULL;
 }
 
 const char *openpak_root = "";
@@ -158,11 +143,11 @@ static bool line_targets_ours(const char *line) {
     while (*host == ' ' || *host == '\t') host++;
     if (!*host) return false;
 
-    for (int i = 0; i < openpak_hosts_count; i++) {
+    const openpak_policy *p = openpak_active_policy();
+    for (int i = 0; i < p->count; i++) {
         // Only names we actually serve. Commenting out someone else's redirect for a host we
         // deliberately leave alone would take their working setup down and give nothing back.
-        if (!openpak_hosts[i].redirect) continue;
-        const char *pat = openpak_hosts[i].host;
+        const char *pat = p->rules[i].host;
         if (pat[0] == '*') {
             const char *suffix = pat + 1;                       // ".example.com"
             size_t hl = strcspn(host, " \t\r\n"), sl = strlen(suffix);
@@ -296,21 +281,16 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
         if (!base) { snprintf(err, errlen, "out of memory"); return false; }
 
         // block = existing content (ours removed) + a fresh block
-        size_t cap = strlen(base) + 512 + (size_t)openpak_hosts_count * 128;
+        const openpak_policy *p = openpak_active_policy();
+        size_t cap = strlen(base) + 512 + (size_t)p->count * (OPENPAK_HOST_MAX + OPENPAK_ADDR_MAX + 4);
         char *out = malloc(cap);
         if (!out) { free(base); snprintf(err, errlen, "out of memory"); return false; }
         int n = snprintf(out, cap, "%s%s%s\n", base,
                          (strlen(base) && base[strlen(base) - 1] != '\n') ? "\n" : "",
                          OPENPAK_BEGIN);
-        for (int h = 0; h < openpak_hosts_count && n > 0 && (size_t)n < cap; h++)
-            if (openpak_hosts[h].redirect)
-                n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
-                              openpak_hosts[h].address ? openpak_hosts[h].address : ip, openpak_hosts[h].host);
-        if (n > 0 && (size_t)n < cap)
-            n += snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_RESEARCH_NOTE);
-        for (int h = 0; h < openpak_hosts_count && n > 0 && (size_t)n < cap; h++)
-            if (!openpak_hosts[h].redirect)
-                n += snprintf(out + n, cap - (size_t)n, "# %s %s\n", ip, openpak_hosts[h].host);
+        for (int h = 0; h < p->count && n > 0 && (size_t)n < cap; h++)
+            n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
+                          p->rules[h].address[0] ? p->rules[h].address : ip, p->rules[h].host);
         if (n > 0 && (size_t)n < cap) snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_END);
         free(base);
 

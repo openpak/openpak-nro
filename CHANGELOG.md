@@ -5,6 +5,19 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- hosts: the managed block is generated from the signed v2 platform bundle
+  (PRD universal-tls-forwarding/05 SETUP-001) instead of a table compiled into
+  the NRO — SD cache, then the bundle this NRO shipped with, then a frozen
+  compiled fallback. Adding a forwarder becomes a server deploy.
+- hosts: a bundle this build cannot fully apply is refused whole and reported,
+  never applied in part; a bundle that is merely absent is not an error
+- hosts: names researched but never served are no longer written into the
+  block as inert comments; the inventory moved to docs/researched-hosts.md
+- ui: both builds name the source and revision of the rules in force, so a
+  console running the compiled fallback no longer looks current
+- release: a tagged build that resolves no bundle fails instead of publishing
+  the fallback
+
 
 ## v0.3.5 — 2026-09-22
 

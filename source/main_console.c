@@ -85,8 +85,11 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
                cur ? "" : "");
     }
 
-    printf("\n  %d host rules redirected (%d more researched, inert)\n\n",
-           openpak_hosts_active(), openpak_hosts_count - openpak_hosts_active());
+    const openpak_policy *pol = openpak_active_policy();
+    printf("\n  %d host rules redirected (%s", pol->count, openpak_source_name(pol->source));
+    if (pol->sequence) printf(", revision %lld", pol->sequence);
+    printf(")\n\n");
+    if (openpak_policy_problem()[0]) printf("  \x1b[33m%s\x1b[0m\n\n", openpak_policy_problem());
     if (confirming)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] reboot now   [B] later\n", status[0] ? status : "Reboot to apply?");
     else {

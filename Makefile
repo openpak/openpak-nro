@@ -35,7 +35,7 @@ LDFLAGS  = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $
 # every time a portlib changes what it depends on.
 # FreeType only: text is rasterised into the framebuffer, so there is no SDL/EGL/mesa here and
 # the NRO loads in applet mode.
-LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs freetype2 2>/dev/null)) -lnx -lm
+LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs freetype2 2>/dev/null)) -ljson-c -lnx -lm
 LIBDIRS := $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -75,7 +75,8 @@ clean:
 
 # Runs on a PC, not the console: the toggle logic with a temp SD root.
 test:
-	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/ca.c source/hosts_test.c && /tmp/openpak_hosts_test
+	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/policy.c source/ca.c source/hosts_test.c \
+		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_hosts_test
 	@python3 tools/test-system.py
 
 else
