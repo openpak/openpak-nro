@@ -30,13 +30,20 @@ OpenPak with this build, even if already active, then reboot.
 
 Selecting OpenPak now also subscribes the News module to OpenPak's four channels and asks
 it to receive (`SetSubscriptionStatus`, `RequestImmediateReception` on news:a). Patches and
-host rules alone are not enough: the module only fetches channels it follows. Selecting
-Nintendo drops those subscriptions and nothing else — the console's Nintendo channels are
-never touched, and `ClearSubscriptionStatusAll` is never called.
+host rules alone are not enough: the module only fetches channels it follows. Following a
+channel sends subscription status **2** (subscribed) — on 22.5.0, status 1 means
+*unsubscribed*, so the module never fetched our topics and refused to store their records.
+Selecting Nintendo forgets those topics (status 0) and nothing else — the console's Nintendo
+channels are never touched, and `ClearSubscriptionStatusAll` is never called.
 
-The filter argument these commands take is undocumented, so three spellings are probed
-read-only and only a filter naming an `openpak_` topic is ever written. If none is accepted
-the rest of the setup still applies. Untested on hardware as of 2026-09-16.
+The filter these commands take is a bare topic id (`[A-Za-z0-9_]{1,31}`); it is probed
+read-only first, and only a filter naming an `openpak_` topic is ever written. If it is not
+accepted the rest of the setup still applies.
+
+A third News patch, `openpak_news_list_no_dauth`, joins the pair above: it lets the module's
+list and titles/topics fetches proceed without a Nintendo edge token, the same way the
+existing patch does for the memory download. All three are keyed by BCAT build id.
+Untested on hardware as of 2026-09-23.
 
 ## Diablo II: Resurrected (2026-09-20)
 

@@ -11,13 +11,22 @@ static const char *const openpak_topics[] = {
 };
 #define TOPIC_COUNT ((int)(sizeof(openpak_topics)/sizeof(*openpak_topics)))
 
-// INewsService takes a NUL-terminated filter whose accepted form is not
-// documented. The database services take SQL-style where clauses, so try that
-// first, then a bare topic id. Probed read-only before anything is written.
+// INewsService takes a NUL-terminated filter that is a bare topic id
+// ([A-Za-z0-9_]{1,31}), not a SQL-style where clause. The two `topic_id='…'`
+// spellings this once probed always returned 0x47d against 22.5.0's module, so
+// only the bare id is used now. Still probed read-only before anything is written.
 static const char *const filter_formats[] = {
-    "topic_id='%s'", "%s", "topic_id=\"%s\"",
+    "%s",
 };
 #define FORMAT_COUNT ((int)(sizeof(filter_formats)/sizeof(*filter_formats)))
+
+// SetSubscriptionStatus values (22.5.0 News module): 0 = forget the topic,
+// 1 = unsubscribed (listed but not followed), 2 = subscribed, 3 = auto. The
+// module only fetches and stores records for topics at status 2, so following
+// one of our channels must send 2 — sending 1 leaves it listed but unfetched
+// and the module refuses to store its records (0xd47d).
+#define NEWS_STATUS_FORGET      0
+#define NEWS_STATUS_SUBSCRIBED  2
 
 // A filter that does not name one of our own topics must never be written:
 // "1" or an empty string would subscribe the console to every topic there is.
@@ -50,7 +59,7 @@ int openpak_news_subscribe(void) {
             snprintf(filter, sizeof(filter), format, openpak_topics[i]);
             if (!ours(filter))
                 continue;
-            if (R_SUCCEEDED(newsSetSubscriptionStatus(filter, 1)))
+            if (R_SUCCEEDED(newsSetSubscriptionStatus(filter, NEWS_STATUS_SUBSCRIBED)))
                 subscribed++;
             // Ask for delivery now rather than waiting for the module's own
             // schedule. It fails harmlessly before the reboot that makes the
@@ -66,12 +75,15 @@ void openpak_news_unsubscribe(void) {
     if (R_FAILED(newsInitialize(NewsServiceType_Administrator)))
         return;
     // Never ClearSubscriptionStatusAll: it would drop Nintendo's channels too.
+    // Forget (0) rather than unsubscribe (1): selecting Nintendo is a full revert,
+    // so our topics should leave the module's list entirely rather than linger as
+    // listed-but-unfollowed entries the player would still see in the News applet.
     for (int i = 0; i < FORMAT_COUNT; i++) {
         for (int t = 0; t < TOPIC_COUNT; t++) {
             char filter[96];
             snprintf(filter, sizeof(filter), filter_formats[i], openpak_topics[t]);
             if (ours(filter))
-                newsSetSubscriptionStatus(filter, 0);
+                newsSetSubscriptionStatus(filter, NEWS_STATUS_FORGET);
         }
     }
     newsExit();
