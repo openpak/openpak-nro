@@ -1,8 +1,13 @@
 # Hosts we researched but do not serve
 
-These names came off a console or an emulator on a dated run — none was guessed. OpenPak
-runs no replacement for any of them, so none is redirected, by this NRO or by the bundle
-the server publishes.
+These names came off a console or an emulator on a dated run — none was guessed. Each is
+reached directly by a third party, outside every family OpenPak claims, and OpenPak runs no
+replacement for any of them — so none is redirected, by this NRO or by the bundle the server
+publishes.
+
+A name *inside* a claimed family is a different case and is not listed here: the family
+covers it whether or not anything of ours answers, which is the trade described in the
+README. `prod.depot.battle.net` moved into that category when `.battle.net` became a family.
 
 Until 0.3.x they shipped inside the hosts block, written commented out. That made the
 block self-documenting and cost a little noise. Now that the block is generated from the
@@ -37,7 +42,6 @@ path does for the hosts we serve. We only claim what we answer for.
 | `login.live.com` | Minecraft Dungeons | 2026-08-31 | |
 | `launchercontent.mojang.com` | Minecraft Dungeons | 2026-08-31 | |
 | `vortex.data.microsoft.com` | Minecraft Dungeons | 2026-08-31 | |
-| `prod.depot.battle.net` | Diablo II: Resurrected — content depot | 2026-09-20 | The title resolves it on every boot, but OpenPak serves nothing there, so redirecting it would blackhole content requests that today simply fail against Blizzard. |
 
 ## Turning one on
 

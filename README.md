@@ -3,8 +3,8 @@
 Switches a CFW Nintendo Switch between Nintendo's servers and OpenPak's, and back.
 
 **Enable** writes a marked block of `dns_mitm` host rules into
-`/atmosphere/hosts/default.txt` and `/atmosphere/hosts/emummc.txt`, pointing every name the
-OpenPak Switch adapter answers for at your server. **Disable** removes that block and leaves
+`/atmosphere/hosts/default.txt` and `/atmosphere/hosts/emummc.txt`, pointing the domain
+families OpenPak claims at your server. **Disable** removes that block and leaves
 the files exactly as they were — anything you had in them is preserved, and running enable
 twice replaces the block instead of stacking copies. Both writes go through a temp file and
 a rename, so an interrupted write can never strand the console between networks.
@@ -46,9 +46,10 @@ that issues the session, and `*.actual.battle.net` is the bgs gateway on port 11
 wildcard covers both regions on purpose — geo decides which one the title dials, so a console
 that geolocates to EU would otherwise reach nothing.
 
-`prod.depot.battle.net` is listed but **off**: the title resolves it on every boot and OpenPak
-serves nothing there, so redirecting it would blackhole content requests that today just fail
-against Blizzard.
+`prod.depot.battle.net` is the content depot, which the title resolves on every boot and
+OpenPak serves nothing on. It used to be listed and deliberately off. The family covers it
+now, so those requests fail to connect instead of failing against Blizzard — the same
+trade every other unserved name under a claimed family makes.
 
 Nothing else is needed on the console. The certificate this NRO already installs into the ssl
 sysmodule covers geo, telemetry, account and the gateway, because the title puts all four
@@ -75,33 +76,53 @@ Choosing **OpenPak** writes the rules and comments out anyone else's redirect fo
 hostnames (an `#openpak-off#` prefix), so the choice actually decides where the console goes
 instead of falling through to another tool's leftovers.
 
-## Hosts we researched but do not serve
+## Where the host list comes from
 
-Several Switch titles never touch a Nintendo host at all — they go straight to Demonware,
-Epic, EA or Xbox Live. Those names are in the table too, but written **commented out**:
+Not from this repository any more. The block is generated from the signed v2 platform
+bundle the release pipeline fetches and verifies, and the console reads it at runtime:
+a downloaded bundle on the SD card if there is one, otherwise the bundle this NRO
+shipped with, otherwise a short list compiled in as a last resort. Adding a forwarder
+is a server deploy, not a new NRO on everybody's SD card.
+
+`source/hosts.c` still carries that last resort, and it is deliberately frozen. It
+mirrors what the bundle emits so that a console falling back to it does not quietly
+behave differently from one that did not.
+
+A bundle this build cannot fully apply is refused whole rather than applied in part —
+an unknown schema version, another console's projection, an unrecognised rule action, a
+capability this release does not implement. The interface names the source and revision
+of the rules in force, so a console running the frozen fallback does not look current.
+
+## What gets redirected
+
+Whole families, not a curated list of services:
 
 ```
-# researched, not served -- uncomment only once something answers on the other side:
-# 10.0.0.7 lavender-switch-auth3.prod.demonware.net
-# 10.0.0.7 api.epicgames.dev
-...
+  *.nintendo.net     nintendo.net
+  *.nintendo.com     nintendo.com
+  *.battle.net       battle.net
 ```
 
-They ship inert on purpose: nothing of ours answers on those addresses yet, so turning one on
-trades an authentication failure for a connection failure.
+plus the Among Us matchmakers, Photon's name server, and the NAT check's second
+responder on its own address.
 
-Note what this is *not*. It is not "don't break a working title" — OpenPak is for banned
-consoles and emulators, and a third party that asks Nintendo to vouch for the console's token
-(Epic certainly, Demonware probably) refuses an OpenPak console regardless, because our
-identity is not Nintendo's and a banned console cannot obtain Nintendo's. For most of these
-titles the online half is already gone before this tool runs. They are recorded here because the
-inventory belongs with the tool that would use it, and because each was observed on a dated
-run rather than guessed. Turn one on by flipping its `redirect` flag in `source/hosts.c`
-once something answers on the other side; uncommenting the line in the hosts file works too,
-but only until the next enable, which regenerates the block.
+**A console on OpenPak therefore stops reaching Nintendo entirely** — not only the
+services OpenPak answers for, but system updates, the eShop CDN, telemetry and the
+browser as well. Names nothing of ours answers on fail to connect rather than reaching
+Nintendo and being refused. That is intended: this tool is for banned, jailbroken and
+emulated consoles, whose identity is OpenPak's and not Nintendo's, so those requests
+were going to be rejected upstream anyway. It is also why choosing **Nintendo** has to
+be a complete revert, and is.
 
-For the same reason we do not comment out anyone *else's* redirect for these names, the way
-we do for the hosts we serve — we only claim what we answer for.
+Some names outside those families are reached directly by third parties — Demonware,
+Epic, EA, Xbox Live — and OpenPak runs no replacement for any of them, so none is
+redirected. That inventory, with its dated observations, is in
+[`docs/researched-hosts.md`](docs/researched-hosts.md). Earlier builds shipped those
+names inside the block written commented out; they are not written at all now, because
+inert lines are data no console ever acts on.
+
+For the same reason we do not comment out anyone *else's* redirect for those names, the
+way we do for the families we claim — we only claim what we answer for.
 
 Choosing **Nintendo** is a full revert: our block goes, every line we commented comes back
 exactly as it was, and if the hosts file contained nothing but our own additions it is
