@@ -45,6 +45,17 @@ list and titles/topics fetches proceed without a Nintendo edge token, the same w
 existing patch does for the memory download. All three are keyed by BCAT build id.
 Untested on hardware as of 2026-09-23.
 
+## Crash Team Racing key (2026-09-23)
+
+Selecting **OpenPak** also installs `exefs_patches/openpak_ctr_key`: Crash Team Racing
+Nitro-Fueled checks its Demonware login replies against a key in its own code, which no
+console-level trust reaches, so this data-only IPS swaps that key for OpenPak's (the matching
+private key signs on `servers/demonware`). It is the only game patch OpenPak ships, keyed to
+the final update's build id (`1C689518406930512C13DDF4217E7676`); details and evidence in
+`servers/demonware/tools/ctr-key-patch`. Selecting Nintendo removes it. A patched CTR
+rejects real Demonware's replies, so it only makes sense once the Demonware hostnames point at
+OpenPak. Untested on hardware as of 2026-09-23.
+
 ## Diablo II: Resurrected (2026-09-20)
 
 Four names join the managed list: `geo.battle.net` picks the region,
