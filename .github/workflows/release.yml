@@ -1,9 +1,10 @@
 name: release
 
-# Every push to main builds both NROs and keeps them as a workflow artifact. A v* tag also
-# publishes them as release assets, which is what a console owner downloads.
+# Every push to main builds both NROs. A v* tag publishes them as release
+# assets, which is what a console owner downloads. The self-hosted build keeps
+# all intermediate files in one job so GitHub artifact storage is not needed.
 #
-# The `network` job is the build-time bundle resolution of PRD
+# The `build` job includes the build-time bundle resolution of PRD
 # universal-tls-forwarding/03 (G2 pilot): once the switch/staging
 # registration exists, releases fetch the signed bundle and verify it before
 # anything is compiled in. It runs only when OPENPAK_CLIENT_HASH is set as a
@@ -28,11 +29,11 @@ jobs:
       - uses: actions/checkout@v4
       - run: make test
 
-  network:
-    if: vars.OPENPAK_CLIENT_HASH != ''
+  build:
+    needs: test
     runs-on: [self-hosted, linux, podman]
     permissions:
-      contents: read
+      contents: write
       id-token: write # the job's own OIDC identity (02 AUTH-001)
     # The protected environment (02 AUTH-001): the OIDC token carries its
     # name, and only a production-environment assertion authorizes a
@@ -48,6 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # for the pinned trust root file
       - name: Pin the fetch tool (03 BUILD-009)
+        if: vars.OPENPAK_CLIENT_HASH != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -65,6 +67,7 @@ jobs:
           chmod +x openpak-network
           echo "$PWD" >> "$GITHUB_PATH"
       - name: Authenticate the release job (02 AUTH-001)
+        if: vars.OPENPAK_CLIENT_HASH != ''
         run: |
           set -e
           if [ -n "${{ vars.OPENPAK_OIDC_AUDIENCE }}" ]; then
@@ -79,6 +82,7 @@ jobs:
               --token-output "$RUNNER_TEMP/openpak-token"
           fi
       - name: Fetch and verify the bundle (03 BUILD-002)
+        if: vars.OPENPAK_CLIENT_HASH != ''
         env:
           OPENPAK_BUILD_TOKEN_FILE: ${{ runner.temp }}/openpak-token
           OPENPAK_BUNDLE_DIR: ${{ github.workspace }}/openpak-bundle
@@ -87,27 +91,6 @@ jobs:
           set -e
           openpak-network fetch --output "$OPENPAK_BUNDLE_DIR"
           openpak-network verify --bundle-dir "$OPENPAK_BUNDLE_DIR"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: openpak-bundle
-          path: |
-            openpak-bundle/policy.json
-            openpak-bundle/manifest.json
-            openpak-bundle/trust/ca.pem
-            openpak-bundle/openpak-network.lock.json
-          if-no-files-found: error
-
-  build:
-    runs-on: [self-hosted, linux, podman]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: openpak-bundle
-          path: openpak-bundle
-        # Skipped cleanly when the network job did not run (no registration
-        # yet): the build falls back to the checked-in fixtures.
-        continue-on-error: true
       - name: Install the verified bundle into RomFS (03 BUILD-M1)
         run: |
           set -e
@@ -127,31 +110,9 @@ jobs:
             docker.io/devkitpro/devkita64:latest make
           podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
             docker.io/devkitpro/devkita64:latest make UI=console
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nro
-          path: |
-            openpak.nro
-            openpak-console.nro
-          if-no-files-found: error
-
-  release:
-    # `network` is skipped before the registration exists; skipped does not
-    # block. Once registered, a failed fetch does block: a certified release
-    # is never silently converted to an uncertified one (03 BUILD-001).
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, build, network]
-    runs-on: [self-hosted, linux, podman]
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: nro
-      - uses: actions/download-artifact@v4
-        with:
-          name: openpak-bundle
-          path: openpak-bundle
-        continue-on-error: true # provenance rides along only when certified
-      - env:
+      - name: Publish tag assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
