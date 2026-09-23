@@ -95,34 +95,29 @@ of the rules in force, so a console running the frozen fallback does not look cu
 
 ## What gets redirected
 
-Whole families, not a curated list of services:
+Everything the console reaches, as whole families with their apexes:
 
 ```
-  *.nintendo.net     nintendo.net
-  *.nintendo.com     nintendo.com
-  *.battle.net       battle.net
+  Nintendo      .nintendo.net  .nintendo.com  .nintendowifi.net
+  Served        .battle.net  .among.us  .photonengine.io  .exitgames.com
+  Not yet       .demonware.net  .epicgames.dev  .ea.com  .xboxlive.com
+                .live.com  .mojang.com  .microsoft.com
 ```
 
-plus the Among Us matchmakers, Photon's name server, and the NAT check's second
-responder on its own address.
+plus the NAT check's second responder on its own address.
 
-**A console on OpenPak therefore stops reaching Nintendo entirely** — not only the
-services OpenPak answers for, but system updates, the eShop CDN, telemetry and the
-browser as well. Names nothing of ours answers on fail to connect rather than reaching
-Nintendo and being refused. That is intended: this tool is for banned, jailbroken and
-emulated consoles, whose identity is OpenPak's and not Nintendo's, so those requests
-were going to be rejected upstream anyway. It is also why choosing **Nintendo** has to
-be a complete revert, and is.
+**A console on OpenPak reaches OpenPak for all of it** — system updates, the eShop CDN,
+telemetry, the browser, the connection test, and every third party a title dials. Names
+nothing of ours answers on yet fail to connect rather than reaching a service that would
+refuse the console: each of those services asks Nintendo to vouch for a token an OpenPak
+console does not have. This tool is for banned, jailbroken and emulated consoles, so that
+refusal was certain; the console now never talks to them at all.
 
-Some names outside those families are reached directly by third parties — Demonware,
-Epic, EA, Xbox Live — and OpenPak runs no replacement for any of them, so none is
-redirected. That inventory, with its dated observations, is in
-[`docs/researched-hosts.md`](docs/researched-hosts.md). Earlier builds shipped those
-names inside the block written commented out; they are not written at all now, because
-inert lines are data no console ever acts on.
+The per-host record behind each third-party family — which title, which run, what was
+seen — is in [`docs/researched-hosts.md`](docs/researched-hosts.md).
 
-For the same reason we do not comment out anyone *else's* redirect for those names, the
-way we do for the families we claim — we only claim what we answer for.
+Choosing **OpenPak** also comments out anyone else's redirect for a name in these
+families (an `#openpak-off#` prefix), so the choice decides where the console goes.
 
 Choosing **Nintendo** is a full revert: our block goes, every line we commented comes back
 exactly as it was, and if the hosts file contained nothing but our own additions it is

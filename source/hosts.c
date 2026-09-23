@@ -24,34 +24,46 @@
 // Do not add a title here. The bundle is where hostnames belong now; this list is
 // frozen deliberately, and a family already covers any new name under it.
 //
-// Redirecting a whole family means a console on OpenPak stops reaching Nintendo at all
-// -- system updates, the eShop CDN and the browser included, not only the services we
-// answer for. That is the intended behaviour for this project's audience, and it is why
+// Redirecting a whole family means a console on OpenPak stops reaching Nintendo -- and
+// every third party a title dials -- at all: system updates, the eShop CDN and the
+// browser included, not only the services we answer for. That is the intended behaviour for this project's audience, and it is why
 // choosing Nintendo has to be a complete revert. See README.md.
 static openpak_rule builtin_rules[] = {
-    // The three Nintendo-side families and their apexes. Everything the console asks
-    // Nintendo for -- BAAS, dauth, Penne, NPLN, NEX, BCAT, save data, the account
-    // site -- lives under one of these.
-    {"*.nintendo.net", ""},
-    {"nintendo.net", ""},
-    {"*.nintendo.com", ""},
-    {"nintendo.com", ""},
-    // Diablo II: Resurrected. The whole family because geo decides which region the
-    // title dials, and a console that geolocates to EU would otherwise reach nothing.
-    {"*.battle.net", ""},
-    {"battle.net", ""},
     // The NAT check probes two addresses from one socket and reads the console's NAT
     // type from what each saw. Both collapsing onto one address is a type it cannot
     // determine, so the second responder names its own box.
     {"nncs2-lp1.n.n.srv.nintendo.net", "145.241.228.207"},
-    // Among Us sits outside every Nintendo family; which region name the Switch build
-    // picks is uncaptured, so all three.
-    {"matchmaker.among.us", ""},
-    {"matchmaker-eu.among.us", ""},
-    {"matchmaker-as.among.us", ""},
-    // Photon's name server, and only it: it answers with the master and game server
-    // addresses itself, so redirecting the rest of the family buys nothing.
-    {"ns.photonengine.io", ""},
+    // Every family the console reaches, each with its apex -- Nintendo's own, the
+    // connection test's, and the third parties a title dials directly. OpenPak answers
+    // on some and not yet on others; a console on OpenPak reaches OpenPak for all of them.
+    {"*.among.us", ""},
+    {"among.us", ""},
+    {"*.battle.net", ""},
+    {"battle.net", ""},
+    {"*.demonware.net", ""},
+    {"demonware.net", ""},
+    {"*.ea.com", ""},
+    {"ea.com", ""},
+    {"*.epicgames.dev", ""},
+    {"epicgames.dev", ""},
+    {"*.exitgames.com", ""},
+    {"exitgames.com", ""},
+    {"*.live.com", ""},
+    {"live.com", ""},
+    {"*.microsoft.com", ""},
+    {"microsoft.com", ""},
+    {"*.mojang.com", ""},
+    {"mojang.com", ""},
+    {"*.nintendo.com", ""},
+    {"nintendo.com", ""},
+    {"*.nintendo.net", ""},
+    {"nintendo.net", ""},
+    {"*.nintendowifi.net", ""},
+    {"nintendowifi.net", ""},
+    {"*.photonengine.io", ""},
+    {"photonengine.io", ""},
+    {"*.xboxlive.com", ""},
+    {"xboxlive.com", ""},
 };
 
 static openpak_policy builtin_policy = {

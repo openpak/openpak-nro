@@ -80,26 +80,22 @@ int main(void) {
     assert(strstr(after, "10.9.9.9 fro-3.hac.lp1.penne.srv.nintendo.net"));
     assert(strstr(after, "192.168.1.50 example.invalid"));
 
-    // Names we researched but never served are not written at all now: the block is
-    // generated from the bundle, and an inert line is data no console ever acts on.
-    // docs/researched-hosts.md is where that inventory lives.
     f = fopen(file, "wb");
     fputs("10.9.9.9 lavender-switch-auth3.prod.demonware.net\n", f);
     fclose(f);
 
     assert(openpak_enable("10.0.0.7", err, sizeof(err)));
     after = read_all(file);
-    assert(!strstr(after, "10.0.0.7 lavender-switch-auth3"));   // never ours to write
-    assert(!strstr(after, "epicgames"));
-    assert(!strstr(after, "ea.com"));
-    // Someone else's redirect for a name we deliberately leave alone stays untouched: we
-    // only claim hosts we serve.
-    assert(strstr(after, "10.9.9.9 lavender-switch-auth3.prod.demonware.net"));
-    assert(!strstr(after, OPENPAK_DISABLED "10.9.9.9 lavender"));
+    // Third parties are claimed families now: the console reaches OpenPak for them too,
+    // and someone else's redirect for one of their names is set aside like any other.
+    assert(strstr(after, "10.0.0.7 *.demonware.net"));
+    assert(strstr(after, "10.0.0.7 *.epicgames.dev"));
+    assert(strstr(after, OPENPAK_DISABLED "10.9.9.9 lavender-switch-auth3.prod.demonware.net"));
 
     assert(openpak_disable(err, sizeof(err)));
     after = read_all(file);
-    assert(strstr(after, "10.9.9.9 lavender-switch-auth3"));    // theirs was never ours to move
+    assert(strstr(after, "10.9.9.9 lavender-switch-auth3"));    // restored verbatim on Nintendo
+    assert(!strstr(after, OPENPAK_DISABLED));
 
     // A bundle on the SD card replaces the compiled list outright. This is the whole
     // point: adding a forwarder becomes a server deploy, not a new NRO on every SD card.

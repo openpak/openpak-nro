@@ -25,6 +25,10 @@ of truth; this file is the readable summary.
   families cover system updates, the eShop CDN and the browser, not only the
   services OpenPak answers for. Intended for this project's audience, and the
   reason choosing Nintendo is a complete revert. See README.md.
+- hosts: third-party families are claimed too — .nintendowifi.net (the connection
+  test), .among.us, .photonengine.io, .exitgames.com, .demonware.net, .epicgames.dev,
+  .ea.com, .xboxlive.com, .live.com, .mojang.com, .microsoft.com. The fallback mirrors
+  switch/stable sequence 5, published 2026-09-23.
 
 
 ## v0.3.5 — 2026-09-22
