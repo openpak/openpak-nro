@@ -114,6 +114,8 @@ static const char *const hosts_files[] = {
     "/atmosphere/hosts/emummc.txt",
 };
 static const int hosts_files_count = (int)(sizeof(hosts_files) / sizeof(hosts_files[0]));
+// The largest hosts file dns_mitm will load; one byte more and ams_mitm aborts at boot.
+#define HOSTS_FILE_MAX 0x8000
 
 // Resolves a hosts path under openpak_root (empty on hardware).
 static const char *hosts_path(int i) {
@@ -299,6 +301,17 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
                           p->rules[h].address[0] ? p->rules[h].address : ip, p->rules[h].host);
         if (n > 0 && (size_t)n < cap) snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_END);
         free(base);
+
+        // ams_mitm aborts at boot on a hosts file of 0x8000 bytes or more
+        // (dnsmitm_host_redirection.cpp: AMS_ABORT_UNLESS(hosts_size < 0x8000)), and a
+        // console that fatals before the menu can only be fixed from a PC. Refuse here
+        // instead, before anything is written, so the file on the card stays as it was.
+        if (strlen(out) >= HOSTS_FILE_MAX) {
+            snprintf(err, errlen, "hosts file would be %zu bytes; Atmosphere refuses %d or more",
+                     strlen(out), HOSTS_FILE_MAX);
+            free(out);
+            return false;
+        }
 
         bool ok = write_atomic(hosts_path(i), out, err, errlen);
         free(out);
