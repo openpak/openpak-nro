@@ -25,6 +25,10 @@ typedef enum {
     OPENPAK_SOURCE_BUILTIN,   // no bundle anywhere: the list compiled into this NRO
     OPENPAK_SOURCE_ROMFS,     // the bundle this NRO shipped with
     OPENPAK_SOURCE_CACHE,     // a bundle fetched from the network and cached on SD
+    // The live network profile filtered through the signed ceiling (ceiling.h): fetched
+    // from openpak.org when the tool opened, or the copy saved the last time it could.
+    OPENPAK_SOURCE_PROFILE,
+    OPENPAK_SOURCE_PROFILE_SAVED,
 } openpak_source;
 
 typedef struct {
@@ -32,6 +36,7 @@ typedef struct {
     int            count;
     long long      sequence;   // 0 for the builtin fallback, which has no revision
     openpak_source source;
+    char           address[OPENPAK_ADDR_MAX];  // the profile's server address, "" if none
 } openpak_policy;
 
 const char *openpak_source_name(openpak_source s);

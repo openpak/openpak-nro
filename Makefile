@@ -45,7 +45,7 @@ export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
 # One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c system_test.c installtrust_test.c report_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
+UI_SKIP  := hosts_test.c ceiling_test.c system_test.c installtrust_test.c report_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
 CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -75,8 +75,10 @@ clean:
 
 # Runs on a PC, not the console: the toggle logic with a temp SD root.
 test:
-	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/policy.c source/ca.c source/hosts_test.c \
-		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_hosts_test
+	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/policy.c source/ceiling.c source/ed25519.c \
+		source/ca.c source/hosts_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && /tmp/openpak_hosts_test
+	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -o /tmp/openpak_ceiling_test source/hosts.c source/policy.c source/ceiling.c \
+		source/ed25519.c source/ceiling_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && /tmp/openpak_ceiling_test
 	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_it_test source/installtrust.c source/installtrust_test.c && /tmp/openpak_it_test
 	@cc -Wall -Wextra -o /tmp/openpak_report_test source/report.c source/report_test.c \
 		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_report_test

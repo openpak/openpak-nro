@@ -27,6 +27,8 @@ const char *openpak_source_name(openpak_source s) {
     switch (s) {
         case OPENPAK_SOURCE_CACHE: return "downloaded";
         case OPENPAK_SOURCE_ROMFS: return "bundled";
+        case OPENPAK_SOURCE_PROFILE: return "openpak.org";
+        case OPENPAK_SOURCE_PROFILE_SAVED: return "saved from openpak.org";
         default:                   return "built in";
     }
 }

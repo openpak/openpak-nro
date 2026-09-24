@@ -6,6 +6,7 @@
 #include "ca.h"
 #include "system.h"
 #include "hosts.h"
+#include "netfetch.h"
 #include "news.h"
 #include "installtrust.h"
 #include "crash.h"
@@ -23,16 +24,29 @@
 #define OPENPAK_SERVER "145.241.199.19"
 #endif
 
+// server.txt when the user set one; otherwise the network profile's server address when
+// there is one (so moving the server is not a new NRO), else the built-in one.
 static void load_ip(char *ip, size_t len) {
-    snprintf(ip, len, "%s", OPENPAK_SERVER);
+    const char *from_profile = openpak_active_policy()->address;
+    snprintf(ip, len, "%s", from_profile[0] ? from_profile : OPENPAK_SERVER);
     FILE *f = fopen(CONFIG_PATH, "rb");
-    if (!f) return;                       // never configured: the built-in address stands
+    if (!f) return;                       // never configured: the default stands
     char saved[64] = {0};
     if (fgets(saved, sizeof(saved), f)) {
         saved[strcspn(saved, "\r\n")] = '\0';
         if (saved[0]) snprintf(ip, len, "%s", saved);
     }
     fclose(f);
+}
+
+// The console is only told, never changed: the hosts files stay as they are until the
+// user selects OpenPak again (docs/signed-ceiling.md, client rule 5).
+#define REDIRECTS_CHANGED "OpenPak updated the Switch's network redirects. Re-apply OpenPak and reboot to use them."
+static bool redirects_changed(const char *ip) {
+    char installed[65], pending[65];
+    if (!openpak_installed_digest(installed)) return false;
+    openpak_pending_digest(ip, pending);
+    return pending[0] && strcmp(installed, pending) != 0;
 }
 
 static void save_ip(const char *ip) {
@@ -70,6 +84,9 @@ static void reboot_console(void) {
 // installs everything together — hosts, CA, News patches, the store patch.
 enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 
+// What the online check at launch had to say ("" = it went through).
+static char net_note[128];
+
 static void draw(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
     const char *labels[IT_COUNT] = {"Nintendo", "OpenPak"};
     char values[IT_COUNT][64];
@@ -90,8 +107,12 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
 
     const openpak_policy *pol = openpak_active_policy();
     printf("\n  %d host rules redirected (%s", pol->count, openpak_source_name(pol->source));
-    if (pol->sequence) printf(", revision %lld", pol->sequence);
+    if (pol->sequence)
+        printf(", revision %lld", pol->sequence);
+    if (openpak_ceiling_current()->version) printf(", signed ceiling v%lld", openpak_ceiling_current()->version);
+    else printf(", built-in ceiling");
     printf(")\n\n");
+    if (net_note[0]) printf("  %s\n\n", net_note);
     if (openpak_policy_problem()[0]) printf("  \x1b[33m%s\x1b[0m\n\n", openpak_policy_problem());
     if (asking)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] send   [B] don't send   [X] always   [Y] never\n", status);
@@ -115,6 +136,9 @@ int main(int argc, char **argv) {
     padInitializeDefault(&pad);
 
     char ip[64];
+    printf("\n  Checking openpak.org for network updates...\n");
+    consoleUpdate(NULL);
+    openpak_network_refresh(net_note, sizeof(net_note));
     load_ip(ip, sizeof(ip));
     char status[192] = "";
     bool on = openpak_enabled();
@@ -130,6 +154,7 @@ int main(int argc, char **argv) {
     }
     // Reports saved by an earlier run (a crash, a failed setup) are offered now.
     bool asking = openpak_report_offer(status, sizeof(status), "OpenPak saved a problem report last time.");
+    if (!status[0] && redirects_changed(ip)) snprintf(status, sizeof(status), "%s", REDIRECTS_CHANGED);
     draw(ip, on, sel, status, confirm_reboot, asking);
 
     while (appletMainLoop()) {

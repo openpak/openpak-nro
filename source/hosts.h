@@ -8,6 +8,7 @@
 #pragma once
 #include <stdbool.h>
 #include "policy.h"
+#include "ceiling.h"
 
 #define OPENPAK_BEGIN "# >>> openpak >>>"
 #define OPENPAK_END   "# <<< openpak <<<"
@@ -25,6 +26,19 @@ const openpak_policy *openpak_active_policy(void);
 const char *openpak_policy_problem(void);
 // Drops the resolved policy so the next call picks up a newly fetched bundle.
 void openpak_policy_reload(void);
+// Profile names the signed ceiling left out (comma separated), "" when none were.
+const char *openpak_policy_dropped(void);
+// The ceiling in force: the cached verified one, else the frozen list's families
+// (version 0).
+const openpak_ceiling *openpak_ceiling_current(void);
+// Set by the online check: the saved profile was fetched this launch.
+void openpak_policy_set_fresh(bool fresh);
+
+// The effective-set digest (ceiling.h) of what selecting OpenPak would install now, and of
+// what is installed (recorded at install, else read back from the hosts block). The second
+// returns false when OpenPak is not installed.
+void openpak_pending_digest(const char *ip, char out[65]);
+bool openpak_installed_digest(char out[65]);
 
 bool openpak_enabled(void);                 // is our block present in any hosts file?
 bool openpak_enable(const char *ip, char *err, int errlen);

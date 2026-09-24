@@ -12,6 +12,7 @@
 #include "ca.h"
 #include "system.h"
 #include "hosts.h"
+#include "netfetch.h"
 #include "news.h"
 #include "installtrust.h"
 #include "crash.h"
@@ -56,16 +57,29 @@ static const Color WARN_BG = {0x2c, 0x24, 0x14, 255};
 enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 static const char *const item_labels[IT_COUNT] = {"Nintendo", "OpenPak"};
 
+// server.txt when the user set one; otherwise the network profile's server address when
+// there is one (so moving the server is not a new NRO), else the built-in one.
 static void load_ip(char *ip, size_t len) {
-    snprintf(ip, len, "%s", OPENPAK_SERVER);
+    const char *from_profile = openpak_active_policy()->address;
+    snprintf(ip, len, "%s", from_profile[0] ? from_profile : OPENPAK_SERVER);
     FILE *f = fopen(CONFIG_PATH, "rb");
-    if (!f) return;                       // never configured: the built-in address stands
+    if (!f) return;                       // never configured: the default stands
     char saved[64] = {0};
     if (fgets(saved, sizeof(saved), f)) {
         saved[strcspn(saved, "\r\n")] = '\0';
         if (saved[0]) snprintf(ip, len, "%s", saved);
     }
     fclose(f);
+}
+
+// The console is only told, never changed: the hosts files stay as they are until the
+// user selects OpenPak again (docs/signed-ceiling.md, client rule 5).
+#define REDIRECTS_CHANGED "OpenPak updated the Switch's network redirects. Re-apply OpenPak and reboot to use them."
+static bool redirects_changed(const char *ip) {
+    char installed[65], pending[65];
+    if (!openpak_installed_digest(installed)) return false;
+    openpak_pending_digest(ip, pending);
+    return pending[0] && strcmp(installed, pending) != 0;
 }
 
 static void save_ip(const char *ip) {
@@ -121,6 +135,9 @@ static void draw_item(int x, int y, int w, int h, bool selected,
         txt_draw(x + w - 26, y + h / 2 - PX_BODY / 2 - 2, PX_BODY, TXT_RIGHT, value_color, "%s", value);
 }
 
+// What the online check at launch had to say ("" = it went through).
+static char net_note[128];
+
 static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
     const int margin = 72;
     const int card_w = GFX_W - margin * 2;
@@ -167,13 +184,19 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
         // Say where the rules came from: "built in" means this console is running the
         // frozen fallback, which looks identical from here and is not the same thing.
         const openpak_policy *pol = openpak_active_policy();
+        long long ceiling = openpak_ceiling_current()->version;
+        char ceil_txt[48];
+        if (ceiling) snprintf(ceil_txt, sizeof(ceil_txt), "signed ceiling v%lld", ceiling);
+        else snprintf(ceil_txt, sizeof(ceil_txt), "built-in ceiling");
         if (pol->sequence)
             txt_draw(margin, msg_y + 42, PX_LABEL, TXT_LEFT, MUTED,
-                     "%d host rules · %s · revision %lld", pol->count,
-                     openpak_source_name(pol->source), pol->sequence);
+                     "%d host rules · %s · revision %lld · %s", pol->count,
+                     openpak_source_name(pol->source), pol->sequence, ceil_txt);
         else
             txt_draw(margin, msg_y + 42, PX_LABEL, TXT_LEFT, MUTED,
-                     "%d host rules · %s", pol->count, openpak_source_name(pol->source));
+                     "%d host rules · %s · %s", pol->count, openpak_source_name(pol->source), ceil_txt);
+        if (net_note[0])
+            txt_draw(margin, msg_y + 68, PX_LABEL, TXT_LEFT, MUTED, "%s", net_note);
     }
 
     // Footer
@@ -212,9 +235,12 @@ int main(int argc, char **argv) {
     padInitializeDefault(&pad);
 
     char ip[64];
-    load_ip(ip, sizeof(ip));
     char status[192] = "";
     bool on = openpak_enabled();
+    // Online check first, so what the tool would install is openpak.org's current set.
+    render(OPENPAK_SERVER, on, on ? IT_OPENPAK : IT_NINTENDO, "Checking openpak.org for network updates...", false, false);
+    openpak_network_refresh(net_note, sizeof(net_note));
+    load_ip(ip, sizeof(ip));
     bool confirm_reboot = false;
     int sel = on ? IT_OPENPAK : IT_NINTENDO;
     // A console that was on OpenPak and has since been updated off 22.5.0 is in an
@@ -229,6 +255,7 @@ int main(int argc, char **argv) {
     }
     // Reports saved by an earlier run (a crash, a failed setup) are offered now.
     bool asking = openpak_report_offer(status, sizeof(status), "OpenPak saved a problem report last time.");
+    if (!status[0] && redirects_changed(ip)) snprintf(status, sizeof(status), "%s", REDIRECTS_CHANGED);
 
     while (appletMainLoop()) {
         padUpdate(&pad);
