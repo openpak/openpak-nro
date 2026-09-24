@@ -126,10 +126,13 @@ jobs:
       - name: Build both NRO variants
         run: |
           set -e
+          # The version comes from the tag, never from the Makefile: the build container has no
+          # git, and a hand-kept number drifted (v0.3.10 reported 0.3.9).
+          case "$GITHUB_REF" in refs/tags/v*) VER="${GITHUB_REF#refs/tags/v}";; *) VER="dev-${GITHUB_SHA::7}";; esac
           podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
-            docker.io/devkitpro/devkita64:latest make
+            docker.io/devkitpro/devkita64:latest make APP_VERSION="$VER"
           podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
-            docker.io/devkitpro/devkita64:latest make UI=console
+            docker.io/devkitpro/devkita64:latest make UI=console APP_VERSION="$VER"
       - name: Publish tag assets
         if: startsWith(github.ref, 'refs/tags/v')
         env:

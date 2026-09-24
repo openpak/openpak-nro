@@ -3,6 +3,12 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.11 — 2026-09-24
+
+- build: the version is the release tag. The workflow passes it to make and a local build takes
+  it from `git describe`, so it can no longer drift: v0.3.10 reported itself as 0.3.9 in crash
+  reports, the About screen and its User-Agent. No other change.
+
 ## v0.3.10 — 2026-09-24 (signed redirect ceiling)
 
 - network: on opening, the NRO fetches the signed redirect ceiling
