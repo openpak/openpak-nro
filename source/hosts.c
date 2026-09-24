@@ -296,9 +296,18 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
         int n = snprintf(out, cap, "%s%s%s\n", base,
                          (strlen(base) && base[strlen(base) - 1] != '\n') ? "\n" : "",
                          OPENPAK_BEGIN);
-        for (int h = 0; h < p->count && n > 0 && (size_t)n < cap; h++)
-            n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
-                          p->rules[h].address[0] ? p->rules[h].address : ip, p->rules[h].host);
+        // dns_mitm takes the LAST matching line, so an override (a name with its own
+        // address, the second NAT responder) must come after the family wildcard that
+        // also matches it -- written before "*.nintendo.net" it is dead, both NAT probes
+        // land on one box and every P2P title fails its NAT check (Golf 2618-0006,
+        // 2026-09-24).
+        for (int pass = 0; pass < 2 && n > 0 && (size_t)n < cap; pass++)
+            for (int h = 0; h < p->count && n > 0 && (size_t)n < cap; h++) {
+                bool override = p->rules[h].address[0] != '\0';
+                if (override != (pass == 1)) continue;
+                n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
+                              override ? p->rules[h].address : ip, p->rules[h].host);
+            }
         if (n > 0 && (size_t)n < cap) snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_END);
         free(base);
 

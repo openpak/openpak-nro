@@ -133,6 +133,8 @@ int main(void) {
         assert(strstr(after, "10.0.0.7 *.apex.net"));
         assert(strstr(after, "10.0.0.7 apex.net"));             // include_apex names the apex too
         assert(strstr(after, "203.0.113.9 nat2.newgame.net"));  // an override keeps its address
+        // ...and comes after the wildcard that also matches it: dns_mitm takes the last match.
+        assert(strstr(after, "203.0.113.9 nat2.newgame.net") > strstr(after, "10.0.0.7 *.newgame.net"));
         assert(!strstr(after, "conntest"));                     // passthrough is never written
         assert(!strstr(after, "nintendo"));                     // the compiled list is not in use
         assert(openpak_disable(err, sizeof(err)));
