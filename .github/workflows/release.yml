@@ -26,7 +26,16 @@ jobs:
     runs-on: [self-hosted, linux, podman]
     steps:
       - uses: actions/checkout@v4
+      - name: Scratch in the workspace, not the runner's shared /tmp
+        # /tmp is a RAM disk every build on the machine shares; when it filled on
+        # 2026-09-24 a compiler died and a job hung for hours instead of failing.
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.tmp"
+          echo "TMPDIR=$GITHUB_WORKSPACE/.tmp" >> "$GITHUB_ENV"
       - run: make test
+      - name: Clear scratch
+        if: always()
+        run: rm -rf "$GITHUB_WORKSPACE/.tmp"
 
   build:
     needs: test
@@ -47,6 +56,12 @@ jobs:
       OPENPAK_CHANNEL: stable
     steps:
       - uses: actions/checkout@v4 # for the pinned trust root file
+      - name: Scratch in the workspace, not the runner's shared /tmp
+        # /tmp is a RAM disk every build on the machine shares; when it filled on
+        # 2026-09-24 a compiler died and a job hung for hours instead of failing.
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.tmp"
+          echo "TMPDIR=$GITHUB_WORKSPACE/.tmp" >> "$GITHUB_ENV"
       - name: Pin the fetch tool (03 BUILD-009)
         if: vars.OPENPAK_CLIENT_HASH != ''
         env:
@@ -134,3 +149,6 @@ jobs:
               --repo "$GITHUB_REPOSITORY" --title "openpak-nro $GITHUB_REF_NAME" \
               --notes "Copy openpak.nro to /switch/ on the SD card. openpak-console.nro is the plain-text fallback."
           fi
+      - name: Clear scratch
+        if: always()
+        run: rm -rf "$GITHUB_WORKSPACE/.tmp"
