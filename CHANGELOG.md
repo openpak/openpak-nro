@@ -3,7 +3,7 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased (signed redirect ceiling)
+## v0.3.10 — 2026-09-24 (signed redirect ceiling)
 
 - network: on opening, the NRO fetches the signed redirect ceiling
   (`/api/v1/network/ceiling`, Ed25519, pinned key per docs/signed-ceiling.md)
@@ -15,7 +15,9 @@ of truth; this file is the readable summary.
   accepted version is recorded: an older signed ceiling is refused.
 - When OpenPak is installed and the set it would install now differs from the
   installed one, the tool says so ("Re-apply OpenPak and reboot"). Nothing on
-  the console changes until the user selects OpenPak again.
+  the console changes until the user selects OpenPak again. [b4d52d8]
+- ci: build scratch in the runner temp, not the checkout or the shared /tmp
+  [1c98d37, a15d981]. The Makefile still says `APP_VERSION := 0.3.9`.
 
 ## v0.3.9 — 2026-09-24
 
@@ -25,8 +27,10 @@ of truth; this file is the readable summary.
   nncs2 resolved to the server box too, both NAT probes hit one address and
   every P2P title failed its NAT check at once (Mario Golf 2618-0006).
   Re-run "OpenPak" on the console after updating so the hosts file is rewritten.
+- Install the CTR key patch with the other OpenPak patch sets [092100e]
+- ci: build only on v*.*.* tags [55f37f6]
 
-## Unreleased
+## v0.3.8 — 2026-09-23
 
 - failure reports: when an install or remove fails (hosts, CA, patch or system
   writes), the display will not start, or the NRO crashes, a small report is
@@ -34,7 +38,10 @@ of truth; this file is the readable summary.
   anything is sent to openpak.org: Send / Don't send / Always / Never, with the
   last two remembered in /switch/openpak/reports.txt. Reports from an earlier
   run (e.g. a crash) are offered at the next launch. Sent with libcurl over the
-  console's ssl service; no account token is sent.
+  console's ssl service; no account token is sent. [f130cd8]
+
+## v0.3.7 — 2026-09-23
+
 - firmware gate: OpenPak refuses to install unless the console runs 22.5.0.
   Everything it installs is derived from that firmware, so another version is
   refused before a single file is written ("OpenPak requires firmware 22.5.0 —
@@ -102,7 +109,9 @@ of truth; this file is the readable summary.
 ## v0.3.5 — 2026-09-22
 
 - install the OpenPak CA into the system SSL certificate store through the
-  supported Atmosphere 1.11.2 package path
+  supported Atmosphere 1.11.2 package path (the 0.3.x system-certificate tree:
+  `source/system.[ch]`, cert-store overlay, `romfs/system/` ams_mitm kip,
+  `tools/test-system.py`; committed in 1c7fc5f)
 - redirect all served NEX game hosts, the Diablo II: Resurrected Battle.net
   hosts, and the Animal Crossing web API to OpenPak
 - news: selecting OpenPak subscribes the News module to OpenPak's channels
