@@ -21,7 +21,9 @@ SOURCES  := source
 INCLUDES := source
 APP_TITLE   := OpenPak
 APP_AUTHOR  := OpenPak
-APP_VERSION := 0.3.9
+# The release workflow passes the tag (make APP_VERSION=0.3.11); a local build takes it from git.
+# Never bumped by hand: v0.3.10 shipped reporting itself as 0.3.9.
+APP_VERSION ?= $(or $(shell git describe --tags --match 'v[0-9]*' 2>/dev/null | sed 's/^v//'),dev)
 # romfs carries the CA the console's browser must trust; there is no way to fetch it before
 # the console trusts us.
 ROMFS    := romfs
