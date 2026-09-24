@@ -144,6 +144,27 @@ is a server deploy, not a new NRO on everybody's SD card.
 mirrors what the bundle emits so that a console falling back to it does not quietly
 behave differently from one that did not.
 
+### Signed redirect ceiling (live profile)
+
+When the tool opens with a connection it fetches, from `openpak.org` only, the signed
+redirect ceiling (`/api/v1/network/ceiling`) and the Switch network profile
+(`/api/v1/network/profile?platform=switch`); the contract is
+[`docs/signed-ceiling.md`](docs/signed-ceiling.md). The ceiling is verified with Ed25519
+against the pinned key (TweetNaCl, verify only, `source/ed25519.c`), cached under
+`/switch/openpak/ceiling.json` exactly as received, and accepted only if its version is at
+least the highest one ever accepted (`ceiling.version`). Every profile name outside the
+verified ceiling is left out on its own and logged to `/switch/openpak/network.log`; the
+rest become the rule set that selecting OpenPak installs, written the same way as a
+bundle's (`*.family` plus the apex, overrides last). Without a verified ceiling the
+families of the frozen list stand in for it.
+
+Order of sources: the saved profile (just fetched, or from an earlier launch), then the
+downloaded bundle, the bundled one, the frozen list. Nothing on the console changes in
+the background: when OpenPak is installed and the effective set it would install differs
+from the installed one (a digest recorded at install in `redirects.digest`, or read back
+from the hosts block), the tool shows "OpenPak updated the Switch's network redirects.
+Re-apply OpenPak and reboot to use them." Consoles using OpenPak DNS need none of this.
+
 A bundle this build cannot fully apply is refused whole rather than applied in part —
 an unknown schema version, another console's projection, an unrecognised rule action, a
 capability this release does not implement. The interface names the source and revision

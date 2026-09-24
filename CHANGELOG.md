@@ -3,6 +3,20 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## Unreleased (signed redirect ceiling)
+
+- network: on opening, the NRO fetches the signed redirect ceiling
+  (`/api/v1/network/ceiling`, Ed25519, pinned key per docs/signed-ceiling.md)
+  and the Switch network profile from openpak.org, and uses the profile,
+  filtered name by name through the verified ceiling, as the rule set it
+  installs. Adding a family on the server no longer needs a new NRO. Fallback
+  order: saved profile, downloaded bundle, bundled policy, frozen list.
+- The ceiling envelope is cached on the SD card as received, and the highest
+  accepted version is recorded: an older signed ceiling is refused.
+- When OpenPak is installed and the set it would install now differs from the
+  installed one, the tool says so ("Re-apply OpenPak and reboot"). Nothing on
+  the console changes until the user selects OpenPak again.
+
 ## v0.3.9 — 2026-09-24
 
 - hosts: override lines (a name with its own address, i.e. the second NAT

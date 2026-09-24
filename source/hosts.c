@@ -1,4 +1,5 @@
 #include "hosts.h"
+#include "ceiling.h"
 #include "policy.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,23 +72,55 @@ static openpak_policy builtin_policy = {
     (int)(sizeof(builtin_rules) / sizeof(*builtin_rules)),
     0,                          // no revision: the fallback is not a published bundle
     OPENPAK_SOURCE_BUILTIN,
+    "",                         // no server address of its own: the configured one
 };
 
 static const openpak_policy *active;
 static openpak_policy *loaded;          // freed on reload; the builtin never is
 static char problem[192];
+static char dropped_note[256];
+static openpak_ceiling ceiling;         // the verified one, or the compiled fallback
+static bool profile_fresh;
 
-// Best source that parses wins. A bundle that is present but unreadable is reported;
-// one that is simply absent is the ordinary state and says nothing.
+// With no verified ceiling cached, the families of the frozen list are the ceiling
+// (docs/signed-ceiling.md: the compiled list is the first-boot fallback).
+static void compiled_ceiling(openpak_ceiling *c) {
+    memset(c, 0, sizeof(*c));
+    for (int i = 0; i < builtin_policy.count && c->count < OPENPAK_CEILING_MAX; i++)
+        if (builtin_rules[i].host[0] == '*')
+            snprintf(c->families[c->count++], OPENPAK_FAMILY_MAX, "%s", builtin_rules[i].host + 1);
+}
+
+// Best source that parses wins: the profile saved from openpak.org (filtered through the
+// ceiling), the downloaded bundle, the bundle this NRO shipped with, the frozen list. A
+// source that is present but unusable is reported; one that is simply absent says nothing.
 const openpak_policy *openpak_active_policy(void) {
     if (active) return active;
     problem[0] = '\0';
+    dropped_note[0] = '\0';
 
     char path[320], err[160];
-    snprintf(path, sizeof(path), "%s%s", openpak_root, CACHE_POLICY);
-    loaded = openpak_policy_load(path, OPENPAK_SOURCE_CACHE, err, sizeof(err));
+    if (!openpak_ceiling_load_cached(&ceiling, err, sizeof(err))) {
+        if (err[0]) snprintf(problem, sizeof(problem), "%s", err);
+        compiled_ceiling(&ceiling);
+    }
+
+    snprintf(path, sizeof(path), "%s%s", openpak_root, OPENPAK_PROFILE_CACHE);
+    size_t len = 0;
+    char *profile = openpak_read_file(path, 256 * 1024, &len);
+    if (profile) {
+        loaded = openpak_profile_policy(profile, len, &ceiling,
+                                        profile_fresh ? OPENPAK_SOURCE_PROFILE : OPENPAK_SOURCE_PROFILE_SAVED,
+                                        dropped_note, sizeof(dropped_note), err, sizeof(err));
+        free(profile);
+        if (!loaded && !problem[0]) snprintf(problem, sizeof(problem), "saved profile ignored: %s", err);
+    }
     if (!loaded) {
-        if (err[0]) snprintf(problem, sizeof(problem), "downloaded bundle ignored: %s", err);
+        snprintf(path, sizeof(path), "%s%s", openpak_root, CACHE_POLICY);
+        loaded = openpak_policy_load(path, OPENPAK_SOURCE_CACHE, err, sizeof(err));
+        if (!loaded && err[0] && !problem[0]) snprintf(problem, sizeof(problem), "downloaded bundle ignored: %s", err);
+    }
+    if (!loaded) {
         loaded = openpak_policy_load(ROMFS_POLICY, OPENPAK_SOURCE_ROMFS, err, sizeof(err));
         if (!loaded && err[0] && !problem[0])
             snprintf(problem, sizeof(problem), "bundled policy ignored: %s", err);
@@ -100,6 +133,18 @@ const char *openpak_policy_problem(void) {
     openpak_active_policy();
     return problem;
 }
+
+const char *openpak_policy_dropped(void) {
+    openpak_active_policy();
+    return dropped_note;
+}
+
+const openpak_ceiling *openpak_ceiling_current(void) {
+    openpak_active_policy();
+    return &ceiling;
+}
+
+void openpak_policy_set_fresh(bool fresh) { profile_fresh = fresh; }
 
 void openpak_policy_reload(void) {
     if (loaded) openpak_policy_free(loaded);
@@ -326,10 +371,20 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
         free(out);
         if (!ok) return false;
     }
+    // What was just installed, so the next launch can tell whether openpak.org has moved on.
+    // Best effort: without the record the installed set is read back from the hosts block.
+    char digest[65], e2[96];
+    openpak_policy_digest(openpak_active_policy(), ip, digest);
+    char path[320];
+    snprintf(path, sizeof(path), "%s%s", openpak_root, OPENPAK_DIGEST_RECORD);
+    openpak_write_file_atomic(path, digest, strlen(digest), e2, sizeof(e2));
     return true;
 }
 
 bool openpak_disable(char *err, int errlen) {
+    char record[320];
+    snprintf(record, sizeof(record), "%s%s", openpak_root, OPENPAK_DIGEST_RECORD);
+    remove(record);
     for (int i = 0; i < hosts_files_count; i++) {
         long len = 0;
         char *text = slurp(hosts_path(i), &len);
@@ -354,4 +409,54 @@ bool openpak_disable(char *err, int errlen) {
         if (!ok) return false;
     }
     return true;
+}
+
+void openpak_pending_digest(const char *ip, char out[65]) {
+    openpak_policy_digest(openpak_active_policy(), ip, out);
+}
+
+// The installed block read back as rules: the address on the first line is the server's,
+// any other address is an override. Only for an install made before the digest was recorded.
+static bool digest_of_block(char out[65]) {
+    for (int i = 0; i < hosts_files_count; i++) {
+        long len = 0;
+        char *text = slurp(hosts_path(i), &len);
+        const char *begin = text ? strstr(text, OPENPAK_BEGIN) : NULL;
+        const char *end = begin ? strstr(begin, OPENPAK_END) : NULL;
+        if (!end) { free(text); continue; }
+        openpak_rule *rules = calloc(OPENPAK_RULES_MAX * 2, sizeof(*rules));
+        int count = 0;
+        char server[OPENPAK_ADDR_MAX] = "";
+        for (const char *p = strchr(begin, '\n'); rules && p && p < end && count < OPENPAK_RULES_MAX * 2; p = strchr(p + 1, '\n')) {
+            char addr[OPENPAK_ADDR_MAX], host[OPENPAK_HOST_MAX];
+            if (sscanf(p + 1, "%45s %159s", addr, host) != 2 || addr[0] == '#') continue;
+            if (!server[0]) snprintf(server, sizeof(server), "%s", addr);
+            snprintf(rules[count].host, OPENPAK_HOST_MAX, "%s", host);
+            snprintf(rules[count].address, OPENPAK_ADDR_MAX, "%s", strcmp(addr, server) ? addr : "");
+            count++;
+        }
+        free(text);
+        if (!rules) return false;
+        openpak_policy p = {rules, count, 0, OPENPAK_SOURCE_BUILTIN, ""};
+        openpak_policy_digest(&p, server, out);
+        free(rules);
+        return true;
+    }
+    return false;
+}
+
+bool openpak_installed_digest(char out[65]) {
+    if (!openpak_enabled()) return false;
+    char path[320];
+    snprintf(path, sizeof(path), "%s%s", openpak_root, OPENPAK_DIGEST_RECORD);
+    size_t len = 0;
+    char *rec = openpak_read_file(path, 256, &len);
+    if (rec && len >= 64) {
+        memcpy(out, rec, 64);
+        out[64] = '\0';
+        free(rec);
+        return true;
+    }
+    free(rec);
+    return digest_of_block(out);
 }
