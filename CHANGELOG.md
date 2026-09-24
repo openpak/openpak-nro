@@ -3,6 +3,15 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.9 — 2026-09-24
+
+- hosts: override lines (a name with its own address, i.e. the second NAT
+  responder nncs2-lp1) are written after the family wildcards. dns.mitm takes
+  the last matching line, so since the `*.nintendo.net` family landed (0.3.7)
+  nncs2 resolved to the server box too, both NAT probes hit one address and
+  every P2P title failed its NAT check at once (Mario Golf 2618-0006).
+  Re-run "OpenPak" on the console after updating so the hosts file is rewritten.
+
 ## Unreleased
 
 - failure reports: when an install or remove fails (hosts, CA, patch or system
