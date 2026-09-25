@@ -259,8 +259,11 @@ int main(void) {
         assert(!openpak_installed_digest(installed));          // nothing installed yet
         assert(openpak_enable("198.51.100.7", err, sizeof(err)));
         char *hosts = get("/atmosphere/hosts/default.txt");
-        assert(strstr(hosts, "198.51.100.7 *.nintendo.net\n198.51.100.7 nintendo.net\n"));
-        assert(strstr(hosts, "203.0.113.9 nncs2-lp1") > strstr(hosts, "*.nintendo.net"));
+        // ".nintendo.net" is written as its services, never as "*.nintendo.net", and the NAT-check
+        // override is dropped: dns_mitm must not answer Pia's nncs lookups (hosts.c).
+        assert(!strstr(hosts, "*.nintendo.net\n"));
+        assert(strstr(hosts, "198.51.100.7 *.s.n.srv.nintendo.net\n") && strstr(hosts, "198.51.100.7 nintendo.net\n"));
+        assert(!strstr(hosts, "nncs2-lp1"));
         assert(!strstr(hosts, "newfamily") && !strstr(hosts, "example.com") && !strstr(hosts, "5.6.7.8"));
         free(hosts);
 

@@ -37,7 +37,23 @@ int main(void) {
     assert(openpak_enabled());
 
     char *after = read_all(file);
-    assert(strstr(after, "10.0.0.7 *.nintendo.net"));
+    // "*.nintendo.net" would make dns_mitm answer Pia's NAT-check lookups (instant 2618-0006):
+    // it is written as its services, and nothing in our block may match those names.
+    assert(!strstr(after, "10.0.0.7 *.nintendo.net"));
+    assert(strstr(after, "10.0.0.7 *.s.n.srv.nintendo.net") && strstr(after, "10.0.0.7 *.ndas.srv.nintendo.net"));
+    assert(!strstr(after, "nncs2-lp1"));                       // the override is dropped, not moved
+    for (const char *l = strchr(strstr(after, OPENPAK_BEGIN), '\n'); l; l = strchr(l, '\n')) {
+        l++;
+        if (!*l || strncmp(l, OPENPAK_END, strlen(OPENPAK_END)) == 0) break;
+        const char *eol = strpbrk(l, "\r\n"), *sp = strchr(l, ' ');
+        if (*l == '#' || !sp || (eol && sp > eol)) continue;
+        char pat[128]; size_t pl = strcspn(sp + 1, "\r\n"); if (pl >= sizeof pat) pl = sizeof pat - 1;
+        memcpy(pat, sp + 1, pl); pat[pl] = 0;
+        assert(!openpak_glob(pat, "nncs1-%.n.n.srv.nintendo.net"));
+        assert(!openpak_glob(pat, "nncs2-%.n.n.srv.nintendo.net"));
+    }
+    assert(openpak_glob("*.nintendo.net", "nncs1-%.n.n.srv.nintendo.net"));   // the matcher itself
+    assert(!openpak_glob("*.s.n.srv.nintendo.net", "nncs1-%.n.n.srv.nintendo.net"));
     assert(strstr(after, "192.168.1.50 example.invalid"));     // pre-existing line kept
     assert(strstr(after, "10.0.0.7 *.nintendo.com"));          // our entries written
     assert(strstr(after, "10.0.0.7 nintendo.net"));            // the apex too

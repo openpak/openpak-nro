@@ -40,6 +40,7 @@ void openpak_policy_set_fresh(bool fresh);
 void openpak_pending_digest(const char *ip, char out[65]);
 bool openpak_installed_digest(char out[65]);
 
+bool openpak_glob(const char *pattern, const char *string);  // dns_mitm's wildcard match
 bool openpak_enabled(void);                 // is our block present in any hosts file?
 bool openpak_enable(const char *ip, char *err, int errlen);
 bool openpak_disable(char *err, int errlen);
