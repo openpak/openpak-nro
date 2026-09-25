@@ -23,6 +23,7 @@ static void hash(uint8_t out[32], const void *data, size_t n) { sha256CalculateH
 #define PACKAGE_SIZE 0x800000
 #define BOOT "/bootloader/hekate_ipl.ini"
 #define OPENPAK_PACKAGE "/atmosphere/package3-openpak"
+#define EXOSPHERE "/exosphere.ini"
 
 static uint32_t get32(const uint8_t *p) {
     return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24;
@@ -226,6 +227,52 @@ static uint8_t *system_store(size_t *size) {
 
 static bool managed_or_original(const char *p,const char *managed,const char *original,const char *absent);
 
+
+// exosphere.ini's blank_prodinfo_emummc: 1 hides the console's identity from Nintendo (Prelude's
+// "Nintendo" mode sets it), but a blank identity has no device certificate, so under OpenPak
+// nn.account fails 2123-0011 before opening a connection and nothing signs in (2026-09-24
+// 21:35Z). Under OpenPak's redirects the real identity never reaches Nintendo, so enable writes
+// 0; disable writes 1, the safe state for a console about to talk to Nintendo again. The file as
+// found is kept in /switch/openpak/system/exosphere.previous. blank_prodinfo_sysmmc is untouched.
+bool openpak_exosphere_blank(bool blank,char *err,int errlen) {
+    static const char key[]="blank_prodinfo_emummc=";const size_t kl=sizeof(key)-1;
+    const char want=blank?'1':'0';
+    size_t n=0;uint8_t *b=read_file(EXOSPHERE,&n,false);
+    if(!b && !blank)return true;                          // no file: exosphere defaults to 0
+    uint8_t *out=malloc(n+64);if(!out) { free(b);snprintf(err,errlen,"out of memory");return false; }
+    size_t o=0;long after_header=-1;bool seen=false,changed=false;
+    for(size_t i=0;i<n;) {
+        size_t e=i;while(e<n && b[e]!='\n')++e;size_t next=e<n?e+1:e;   // one line, newline included
+        if(e-i>kl && !memcmp(b+i,key,kl)) {
+            if(seen) { changed=true;i=next;continue; }    // a duplicate line: dropped
+            memcpy(out+o,b+i,next-i);
+            if(out[o+kl]!=want) { out[o+kl]=want;changed=true; }
+            o+=next-i;seen=true;i=next;continue;
+        }
+        memcpy(out+o,b+i,next-i);o+=next-i;
+        if(after_header<0 && e-i>=11 && !memcmp(b+i,"[exosphere]",11)) {
+            if(out[o-1]!='\n')out[o++]='\n';
+            after_header=(long)o;
+        }
+        i=next;
+    }
+    if(!seen) {                                           // key missing: add it under [exosphere]
+        char line[40];int ll=snprintf(line,sizeof(line),"%s%c\n",key,want);
+        if(after_header<0) {
+            if(o && out[o-1]!='\n')out[o++]='\n';
+            memcpy(out+o,"[exosphere]\n",12);o+=12;after_header=(long)o;
+        }
+        memmove(out+after_header+ll,out+after_header,o-(size_t)after_header);
+        memcpy(out+after_header,line,(size_t)ll);o+=(size_t)ll;changed=true;
+    }
+    bool ok=true;
+    if(changed) {
+        if(b && !write_file(STATE "/exosphere.previous",b,n)) { snprintf(err,errlen,"Could not back up exosphere.ini");ok=false; }
+        else if(!write_file(EXOSPHERE,out,o)) { snprintf(err,errlen,"Could not update exosphere.ini");ok=false; }
+    }
+    free(b);free(out);return ok;
+}
+
 bool openpak_system_install(char *err,int errlen) {
     if(!recover_file(BOOT) || !recover_file(STORE) || !recover_file(OPENPAK_PACKAGE)) {
         snprintf(err,errlen,"Could not recover interrupted system setup");return false;
@@ -251,6 +298,8 @@ bool openpak_system_install(char *err,int errlen) {
     failure="Could not read the system certificates";
     source=system_store(&sn);ca=read_file(ASSET "ca.der",&cn,true);
     if(!source||!ca||!openpak_store_replace(source,sn,ca,cn,&store,&outn))goto done;
+    failure="Could not clear blank_prodinfo_emummc in exosphere.ini";
+    if(!openpak_exosphere_blank(false,err,errlen))goto done;
     failure="Could not back up system setup";
     if(!backup(BOOT,STATE "/boot.original",STATE "/boot.absent") ||
        !backup(STORE,STATE "/certificate.original",STATE "/certificate.absent"))goto done;
@@ -294,5 +343,5 @@ bool openpak_system_remove(char *err,int errlen) {
     // It is no longer selected and an identical file can be reused on re-enable.
     const char *files[]={"boot.original","boot.absent","boot.managed","certificate.original","certificate.absent","certificate.managed"};
     for(size_t i=0;i<sizeof(files)/sizeof(files[0]);++i) { char p[256];snprintf(p,sizeof(p),STATE "/%s",files[i]);if(!erase(p)) { snprintf(err,errlen,"Restored system; could not remove backup metadata");return false; } }
-    return true;
+    return openpak_exosphere_blank(true,err,errlen);
 }

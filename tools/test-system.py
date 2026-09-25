@@ -57,6 +57,24 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     for unsupported in [b'',b'[CFW]\npayload=custom.bin\n',b'pkg3=atmosphere/package3-openpak',b'pkg3=atmosphere/package3\0',b'#pkg3=atmosphere/package3']:
         assert boot_transform(unsupported) is None
     print('PASS: boot-entry selection preserves formatting and rejects unsupported configurations')
+    api.openpak_exosphere_blank.restype=c.c_bool;api.openpak_exosphere_blank.argtypes=[c.c_bool,c.c_char_p,c.c_int]
+    exo_root=tmp/'exo';(exo_root/'switch/openpak/system').mkdir(parents=True)
+    exo_root_bytes=str(exo_root).encode();c.c_char_p.in_dll(api,'openpak_root').value=exo_root_bytes;err=c.create_string_buffer(256)
+    exo=exo_root/'exosphere.ini';prev=exo_root/'switch/openpak/system/exosphere.previous'
+    assert api.openpak_exosphere_blank(False,err,256) and not exo.exists()          # no file, enable: nothing to do
+    assert api.openpak_exosphere_blank(True,err,256),err.value                       # no file, disable: created
+    assert exo.read_bytes()==b'[exosphere]\nblank_prodinfo_emummc=1\n'
+    exo.write_bytes(b'[exosphere]\r\ndebugmode=1\r\nblank_prodinfo_sysmmc=1\r\nblank_prodinfo_emummc=1\r\nlog_port=0\r\n')
+    assert api.openpak_exosphere_blank(False,err,256),err.value                      # enable clears it in place
+    assert exo.read_bytes()==b'[exosphere]\r\ndebugmode=1\r\nblank_prodinfo_sysmmc=1\r\nblank_prodinfo_emummc=0\r\nlog_port=0\r\n'
+    assert prev.read_bytes().endswith(b'emummc=1\r\nlog_port=0\r\n')
+    before=exo.read_bytes();assert api.openpak_exosphere_blank(False,err,256) and exo.read_bytes()==before   # idempotent
+    assert api.openpak_exosphere_blank(True,err,256),err.value                       # disable sets it back
+    assert exo.read_bytes()==before.replace(b'emummc=0',b'emummc=1')
+    exo.write_bytes(b'[exosphere]\ndebugmode=1\n[other]\nx=1\n')                    # key missing: inserted
+    assert api.openpak_exosphere_blank(True,err,256),err.value
+    assert exo.read_bytes()==b'[exosphere]\nblank_prodinfo_emummc=1\ndebugmode=1\n[other]\nx=1\n'
+    print('PASS: exosphere blank_prodinfo_emummc: enable clears, disable sets, missing key inserted, sysmmc untouched, backup kept')
     if a.package3:
         import os
         original=a.package3.resolve().read_bytes();os.chdir(repo)

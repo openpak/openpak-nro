@@ -3,6 +3,19 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## Unreleased
+
+- hosts: the `.nintendo.net` family is written as its services (`*.s.n.srv`, `*.ndas.srv`,
+  `*.cdn`, …) instead of one `*.nintendo.net` line, and any override for the NAT-check names is
+  dropped. Pia asks for `nncs1-%.n.n.srv.nintendo.net` with the placeholder unexpanded; when
+  dns.mitm answers that lookup itself the game unregisters within the second, sends no probe and
+  shows 2618-0006. Reaching the real resolver makes the NAT check run (console, Golf and Kirby,
+  2026-09-25). Test asserts nothing in the block matches those names.
+- system: enable clears `blank_prodinfo_emummc=1` in `/exosphere.ini` (Prelude's Nintendo mode
+  sets it; without the device certificate nn.account fails 2123-0011 and nothing signs in). Disable
+  sets it to 1, the safe state for a console about to talk to Nintendo again (what Prelude's
+  Nintendo mode does). A copy of the file as found goes to `/switch/openpak/system/exosphere.previous`.
+
 ## v0.3.11 — 2026-09-24
 
 - build: the version is the release tag. The workflow passes it to make and a local build takes

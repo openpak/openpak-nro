@@ -186,6 +186,76 @@ static char *slurp(const char *path, long *len_out) {
     return buf;
 }
 
+// dns_mitm's own matcher (wildcardcmp): '*' matches any run of characters, everything else is
+// literal. Used to make sure nothing we write is answered by dns_mitm for the NAT-check names.
+bool openpak_glob(const char *pattern, const char *string) {
+    const char *w = NULL, *s = NULL;
+    for (;;) {
+        if (!*string) {
+            if (!*pattern || *pattern == '*') return true;
+            if (!s || !*s) return false;
+            string = s++; pattern = w; continue;
+        }
+        if (*pattern != *string) {
+            if (*pattern == '*') { w = ++pattern; s = string; if (*pattern) continue; return true; }
+            if (w) { string++; continue; }
+            return false;
+        }
+        pattern++; string++;
+    }
+}
+
+// Pia resolves the NAT-check servers as "nncs1-%.n.n.srv.nintendo.net" (placeholder unexpanded,
+// GetAddrInfoRequestWithOptions). When a hosts line matches, dns_mitm answers itself and Pia does
+// not accept that answer: the game unregisters within the second, sends no probe, and shows
+// 2618-0006. When the names reach the real resolver, the NAT check runs (2026-09-25, Golf and
+// Kirby on the console; dns_mitm_debug.log per boot). So no line we write may match them, which
+// rules out "*.nintendo.net"; that family is written as the services under it instead.
+static const char *const NAT_CHECK_NAMES[] = {
+    "nncs1-%.n.n.srv.nintendo.net", "nncs2-%.n.n.srv.nintendo.net",
+    "nncs1-lp1.n.n.srv.nintendo.net", "nncs2-lp1.n.n.srv.nintendo.net",
+};
+static bool catches_nat_check(const char *pattern) {
+    for (size_t i = 0; i < sizeof(NAT_CHECK_NAMES) / sizeof(*NAT_CHECK_NAMES); i++)
+        if (openpak_glob(pattern, NAT_CHECK_NAMES[i])) return true;
+    return false;
+}
+// ponytail: the services this console was seen resolving under nintendo.net (2026-09-24 debug
+// log). A service missing here leaks to the real resolver instead of the box; add it when seen.
+static const char *const NINTENDO_NET_SPLIT[] = {
+    "*.s.n.srv", "*.p.srv", "*.ndas.srv", "*.frs.srv", "*.znc.srv", "*.acbaa.srv", "*.ctest.srv",
+    "*.penne.srv", "*.vermillion.srv", "*.savanna.srv", "*.dg.srv", "*.er.srv", "*.scsi.srv",
+    "*.npln.srv", "*.pctl.srv", "*.npns.srv", "*.five", "*.d4c", "*.cdn", "*.eshop", "*.op2",
+    "*.dragons", "*.nso", "*.sun",
+};
+#define NINTENDO_NET_SPLIT_COUNT (sizeof(NINTENDO_NET_SPLIT) / sizeof(*NINTENDO_NET_SPLIT))
+
+// The rules as they are written: the ".nintendo.net" family as its services, and nothing that
+// dns_mitm would answer for the NAT-check names. The block and both digests come from here, so
+// what the tool installs and what it later reads back from the card agree.
+static openpak_rule *effective_rules(const openpak_policy *p, int *count) {
+    openpak_rule *out = calloc((size_t)p->count + NINTENDO_NET_SPLIT_COUNT, sizeof(*out));
+    int n = 0;
+    if (!out) { *count = 0; return NULL; }
+    // dns_mitm takes the LAST matching line: overrides (a name with its own address) go after
+    // the family wildcards, or the wildcard would swallow them.
+    for (int pass = 0; pass < 2; pass++)
+        for (int h = 0; h < p->count; h++) {
+            bool override = p->rules[h].address[0] != '\0';
+            if (override != (pass == 1)) continue;
+            const char *host = p->rules[h].host;
+            if (strcmp(host, "*.nintendo.net") == 0) {
+                for (size_t k = 0; k < NINTENDO_NET_SPLIT_COUNT; k++, n++)
+                    snprintf(out[n].host, OPENPAK_HOST_MAX, "%s.nintendo.net", NINTENDO_NET_SPLIT[k]);
+                continue;
+            }
+            if (catches_nat_check(host)) continue;       // an nncs override would be answered by dns_mitm
+            out[n++] = p->rules[h];
+        }
+    *count = n;
+    return out;
+}
+
 // True when a hosts line redirects one of the names we care about. Wildcards match by their
 // suffix, the same way dns_mitm reads them.
 static bool line_targets_ours(const char *line) {
@@ -334,25 +404,19 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
         if (!base) { snprintf(err, errlen, "out of memory"); return false; }
 
         // block = existing content (ours removed) + a fresh block
-        const openpak_policy *p = openpak_active_policy();
-        size_t cap = strlen(base) + 512 + (size_t)p->count * (OPENPAK_HOST_MAX + OPENPAK_ADDR_MAX + 4);
+        int rc = 0;
+        openpak_rule *rules = effective_rules(openpak_active_policy(), &rc);
+        if (!rules) { free(base); snprintf(err, errlen, "out of memory"); return false; }
+        size_t cap = strlen(base) + 512 + (size_t)rc * (OPENPAK_HOST_MAX + OPENPAK_ADDR_MAX + 4);
         char *out = malloc(cap);
-        if (!out) { free(base); snprintf(err, errlen, "out of memory"); return false; }
+        if (!out) { free(rules); free(base); snprintf(err, errlen, "out of memory"); return false; }
         int n = snprintf(out, cap, "%s%s%s\n", base,
                          (strlen(base) && base[strlen(base) - 1] != '\n') ? "\n" : "",
                          OPENPAK_BEGIN);
-        // dns_mitm takes the LAST matching line, so an override (a name with its own
-        // address, the second NAT responder) must come after the family wildcard that
-        // also matches it -- written before "*.nintendo.net" it is dead, both NAT probes
-        // land on one box and every P2P title fails its NAT check (Golf 2618-0006,
-        // 2026-09-24).
-        for (int pass = 0; pass < 2 && n > 0 && (size_t)n < cap; pass++)
-            for (int h = 0; h < p->count && n > 0 && (size_t)n < cap; h++) {
-                bool override = p->rules[h].address[0] != '\0';
-                if (override != (pass == 1)) continue;
-                n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
-                              override ? p->rules[h].address : ip, p->rules[h].host);
-            }
+        for (int h = 0; h < rc && n > 0 && (size_t)n < cap; h++)
+            n += snprintf(out + n, cap - (size_t)n, "%s %s\n",
+                          rules[h].address[0] ? rules[h].address : ip, rules[h].host);
+        free(rules);
         if (n > 0 && (size_t)n < cap) snprintf(out + n, cap - (size_t)n, "%s\n", OPENPAK_END);
         free(base);
 
@@ -374,7 +438,7 @@ bool openpak_enable(const char *ip, char *err, int errlen) {
     // What was just installed, so the next launch can tell whether openpak.org has moved on.
     // Best effort: without the record the installed set is read back from the hosts block.
     char digest[65], e2[96];
-    openpak_policy_digest(openpak_active_policy(), ip, digest);
+    openpak_pending_digest(ip, digest);
     char path[320];
     snprintf(path, sizeof(path), "%s%s", openpak_root, OPENPAK_DIGEST_RECORD);
     openpak_write_file_atomic(path, digest, strlen(digest), e2, sizeof(e2));
@@ -412,7 +476,12 @@ bool openpak_disable(char *err, int errlen) {
 }
 
 void openpak_pending_digest(const char *ip, char out[65]) {
-    openpak_policy_digest(openpak_active_policy(), ip, out);
+    int n = 0;
+    openpak_rule *rules = effective_rules(openpak_active_policy(), &n);
+    if (!rules) { out[0] = '\0'; return; }
+    openpak_policy p = {rules, n, 0, OPENPAK_SOURCE_BUILTIN, ""};
+    openpak_policy_digest(&p, ip, out);
+    free(rules);
 }
 
 // The installed block read back as rules: the address on the first line is the server's,
