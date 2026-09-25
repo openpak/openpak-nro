@@ -16,6 +16,12 @@ of truth; this file is the readable summary.
   sets it to 1, the safe state for a console about to talk to Nintendo again (what Prelude's
   Nintendo mode does). A copy of the file as found goes to `/switch/openpak/system/exosphere.previous`.
 
+- system: the certificate overlay is built from the CertStore file itself (the archive is
+  mounted and read as the ssl service reads it: 127 entries on 22.5.0, original layout) with
+  only slot 1033 repointed at the OpenPak CA. The live certificate list, which exposes 63 of
+  those entries and re-lays the file out, is now the fallback only. An overlay that already
+  carries the CA is kept as it is on re-apply instead of being patched again.
+
 ## v0.3.11 — 2026-09-24
 
 - build: the version is the release tag. The workflow passes it to make and a local build takes

@@ -88,6 +88,20 @@ bool openpak_store_replace(const uint8_t *s, size_t size, const uint8_t *ca,
     memcpy(b+end,ca,ca_size); *out=b; *out_size=end+ca_size; return true;
 }
 
+// True when entry 1033 of a store already carries this CA: the file read back through LayeredFS
+// is an OpenPak overlay, to be kept as it is rather than patched a second time.
+bool openpak_store_is_ours(const uint8_t *s, size_t size, const uint8_t *ca, size_t ca_size) {
+    if (size<8 || get32(s)!=0x546c7373) return false;
+    uint32_t count=get32(s+4);
+    if (count>(size-8)/16) return false;
+    for (uint32_t i=0;i<count;++i) {
+        uint32_t pos=8+i*16, id=get32(s+pos), len=get32(s+pos+8), off=get32(s+pos+12);
+        if (id!=1033) continue;
+        return len==ca_size && off<=size-8 && len<=size-8-off && !memcmp(s+8+off,ca,len);
+    }
+    return false;
+}
+
 // Change only standard package3/fss0 values. All other lines, including autoboot,
 // retain their original bytes. The active package can stay open throughout setup.
 bool openpak_boot_build(const uint8_t *source, size_t size, uint8_t **out, size_t *out_size) {
@@ -194,6 +208,16 @@ static uint8_t *system_store(size_t *size) {
 #ifdef OPENPAK_HOST_TEST
     return read_file(STATE "/source.bdf",size,false);
 #else
+    // The file as the ssl service reads it: 127 entries on 22.5.0, original layout. The live list
+    // below (sslGetCertificates) exposes only 63 of them and re-lays the file out; it stays as the
+    // fallback. LayeredFS applies to this mount too, so an active overlay comes back unchanged and
+    // the caller keeps it (openpak_store_is_ours) instead of appending the CA again.
+    if(R_SUCCEEDED(romfsMountFromDataArchive(0x0100000000000800ULL,NcmStorageId_BuiltInSystem,"certstore"))) {
+        uint8_t *file=read_file("certstore:/ssl_TrustedCerts.bdf",size,true);
+        romfsUnmount("certstore");
+        if(file && *size>=8 && get32(file)==0x546c7373)return file;
+        free(file);
+    }
     if(R_FAILED(sslInitialize(1)))return NULL;
     u32 id=SslCaCertificateId_All,n=0,total=0;
     Result rc=sslGetCertificateBufSize(&id,1,&n);
@@ -297,7 +321,9 @@ bool openpak_system_install(char *err,int errlen) {
     if(exists(OPENPAK_PACKAGE) && !same_file(OPENPAK_PACKAGE,base,n))goto done;
     failure="Could not read the system certificates";
     source=system_store(&sn);ca=read_file(ASSET "ca.der",&cn,true);
-    if(!source||!ca||!openpak_store_replace(source,sn,ca,cn,&store,&outn))goto done;
+    if(!source||!ca)goto done;
+    if(openpak_store_is_ours(source,sn,ca,cn)) { store=source;outn=sn;source=NULL; }
+    else if(!openpak_store_replace(source,sn,ca,cn,&store,&outn))goto done;
     failure="Could not clear blank_prodinfo_emummc in exosphere.ini";
     if(!openpak_exosphere_blank(false,err,errlen))goto done;
     failure="Could not back up system setup";

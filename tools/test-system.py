@@ -43,7 +43,11 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     bad=c.create_string_buffer(b'x'*0x800000)
     kip=(repo/'romfs/system/ams_mitm-1.11.2.kip').read_bytes()
     assert not api.openpak_package_build(bad,0x800000,kip,len(kip))
-    print('PASS: certificate bounds, duplicate IDs, preservation, unsupported package rejection')
+    api.openpak_store_is_ours.restype=c.c_bool;api.openpak_store_is_ours.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t]
+    assert not api.openpak_store_is_ours(source,len(source),ca,len(ca))          # stock: 1033 is the old root
+    assert api.openpak_store_is_ours(result,len(result),ca,len(ca))              # our overlay read back
+    assert not api.openpak_store_is_ours(result,len(result),b'other cert',10)   # someone else's CA in 1033
+    print('PASS: certificate bounds, duplicate IDs, preservation, unsupported package rejection, overlay recognised')
     def boot_transform(data):
         out=c.c_void_p();size=c.c_size_t()
         ok=api.openpak_boot_build(data,len(data),c.byref(out),c.byref(size))
