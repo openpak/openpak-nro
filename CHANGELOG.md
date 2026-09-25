@@ -3,7 +3,7 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased
+## v0.3.12 — 2026-09-25
 
 - hosts: the `.nintendo.net` family is written as its services (`*.s.n.srv`, `*.ndas.srv`,
   `*.cdn`, …) instead of one `*.nintendo.net` line, and any override for the NAT-check names is
