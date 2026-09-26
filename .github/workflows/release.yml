@@ -1,8 +1,13 @@
 name: release
 
 # A vX.Y.Z tag builds both NROs and publishes them as release assets, which
-# is what a console owner downloads; pushes to main build nothing. The self-hosted build keeps
+# is what a console owner downloads; pushes to main build nothing. Both jobs keep
 # all intermediate files in one job so GitHub artifact storage is not needed.
+#
+# GitHub-hosted, not the n5air runners: this repository is public so the NRO can
+# self-update from its own releases, and the org runner group refuses public
+# repositories — jobs sat queued for hours against an idle runner. A public
+# repository's hosted minutes are free, and the image already carries podman.
 #
 # The `build` job includes the build-time bundle resolution of PRD
 # universal-tls-forwarding/03 (G2 pilot): once the switch/staging
@@ -23,23 +28,16 @@ permissions:
 jobs:
   test:
     # The toggle logic has a host-side check that needs nothing but a C compiler.
-    runs-on: [self-hosted, linux, podman]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scratch in the runner's temp, not the machine's shared /tmp
-        # /tmp is a RAM disk every build on the machine shares; when it filled on
-        # 2026-09-24 a compiler died and a job hung for hours instead of failing.
-        run: |
-          mkdir -p "$RUNNER_TEMP/scratch"
-          echo "TMPDIR=$RUNNER_TEMP/scratch" >> "$GITHUB_ENV"
+      - name: json-c headers (the only thing make test needs that the image lacks)
+        run: sudo apt-get update && sudo apt-get install -y libjson-c-dev
       - run: make test
-      - name: Clear scratch
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/scratch"
 
   build:
     needs: test
-    runs-on: [self-hosted, linux, podman]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write # the job's own OIDC identity (02 AUTH-001)
@@ -56,12 +54,6 @@ jobs:
       OPENPAK_CHANNEL: stable
     steps:
       - uses: actions/checkout@v4 # for the pinned trust root file
-      - name: Scratch in the runner's temp, not the machine's shared /tmp
-        # /tmp is a RAM disk every build on the machine shares; when it filled on
-        # 2026-09-24 a compiler died and a job hung for hours instead of failing.
-        run: |
-          mkdir -p "$RUNNER_TEMP/scratch"
-          echo "TMPDIR=$RUNNER_TEMP/scratch" >> "$GITHUB_ENV"
       - name: Pin the fetch tool (03 BUILD-009)
         if: vars.OPENPAK_CLIENT_HASH != ''
         env:
@@ -152,6 +144,3 @@ jobs:
               --repo "$GITHUB_REPOSITORY" --title "openpak-nro $GITHUB_REF_NAME" \
               --notes "Copy openpak.nro to /switch/ on the SD card. openpak-console.nro is the plain-text fallback."
           fi
-      - name: Clear scratch
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/scratch"
