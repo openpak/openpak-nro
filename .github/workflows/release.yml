@@ -8,6 +8,8 @@ name: release
 # self-update from its own releases, and the org runner group refuses public
 # repositories — jobs sat queued for hours against an idle runner. A public
 # repository's hosted minutes are free, and the image already carries podman.
+# The image is pinned: ubuntu-latest becomes Ubuntu 26 on 2026-10-19, and a release
+# build is not where to discover what that moved.
 #
 # The `build` job includes the build-time bundle resolution of PRD
 # universal-tls-forwarding/03 (G2 pilot): once the switch/staging
@@ -28,16 +30,16 @@ permissions:
 jobs:
   test:
     # The toggle logic has a host-side check that needs nothing but a C compiler.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: json-c headers (the only thing make test needs that the image lacks)
         run: sudo apt-get update && sudo apt-get install -y libjson-c-dev
       - run: make test
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write # the job's own OIDC identity (02 AUTH-001)
@@ -53,7 +55,7 @@ jobs:
       OPENPAK_PLATFORM: switch
       OPENPAK_CHANNEL: stable
     steps:
-      - uses: actions/checkout@v4 # for the pinned trust root file
+      - uses: actions/checkout@v5 # for the pinned trust root file
       - name: Pin the fetch tool (03 BUILD-009)
         if: vars.OPENPAK_CLIENT_HASH != ''
         env:
