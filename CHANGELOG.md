@@ -3,6 +3,15 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.14 — 2026-09-26
+
+- update: what arrives is accepted only when it is a whole NRO. v0.3.13 compared the length in
+  the NRO header against the file size, but elf2nro appends the icon, the NACP and the romfs
+  behind an `ASET` header after that length, so every real release failed the check and no update
+  could ever install. The header, the `ASET` header at the length it declares, and the last
+  asset ending exactly at the end of the file are what is checked now, against a build laid out
+  like elf2nro's output in `make test`.
+
 ## v0.3.13 — 2026-09-26
 
 - system: re-applying OpenPak no longer stops with "Certificate overlay changed; existing file

@@ -46,6 +46,31 @@ bool openpak_update_asset_ok(const char *url, const char *name) {
     return strchr(slash + 1, '/') == NULL && strcmp(slash + 1, name) == 0;
 }
 
+static uint32_t get32(const uint8_t *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+static uint64_t get64(const uint8_t *p) { return (uint64_t)get32(p) | (uint64_t)get32(p + 4) << 32; }
+
+// An NRO's header carries its own length at 0x18, and elf2nro appends the icon, the NACP and the
+// romfs behind an "ASET" header at that offset, the last of them ending at the end of the file.
+// Together they say the card holds a whole homebrew build: not an error page, and not a transfer
+// that stopped early. The romfs is required because it is where the OpenPak CA travels.
+bool openpak_update_is_nro(const char *path) {
+    uint8_t head[0x20] = {0}, aset[0x38] = {0};
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    bool ok = fread(head, 1, sizeof(head), f) == sizeof(head) && fseek(f, 0, SEEK_END) == 0;
+    long size = ok ? ftell(f) : -1;
+    uint32_t nro = get32(head + 0x18);
+    ok = ok && size >= 0x1000 && memcmp(head + 0x10, "NRO0", 4) == 0 &&
+         nro >= 0x1000 && (long)nro <= size - (long)sizeof(aset) &&
+         fseek(f, (long)nro, SEEK_SET) == 0 && fread(aset, 1, sizeof(aset), f) == sizeof(aset);
+    fclose(f);
+    if (!ok || memcmp(aset, "ASET", 4) != 0) return false;
+    uint64_t off = get64(aset + 0x28), len = get64(aset + 0x30);     // the romfs, the last entry
+    return off != 0 && (uint64_t)nro + off + len == (uint64_t)size;
+}
+
 #ifndef OPENPAK_HOST_TEST
 #define NRO_MAX (16 * 1024 * 1024)
 
@@ -151,27 +176,12 @@ static bool download(const char *path, char *msg, int msglen) {
     return true;
 }
 
-// An NRO starts with a header whose magic sits at 0x10 and whose size at 0x18 covers the whole
-// file: enough to know the SD card holds a build and not an error page or half a transfer.
-static bool is_nro(const char *path) {
-    uint8_t head[0x20] = {0};
-    FILE *f = fopen(path, "rb");
-    if (!f) return false;
-    bool read = fread(head, 1, sizeof(head), f) == sizeof(head);
-    long size = (fseek(f, 0, SEEK_END) == 0) ? ftell(f) : -1;
-    fclose(f);
-    if (!read || size < 0x1000) return false;
-    uint32_t declared = (uint32_t)head[0x18] | (uint32_t)head[0x19] << 8 |
-                        (uint32_t)head[0x1a] << 16 | (uint32_t)head[0x1b] << 24;
-    return memcmp(head + 0x10, "NRO0", 4) == 0 && declared == (uint32_t)size;
-}
-
 int openpak_update_apply(char *msg, int msglen) {
     if (!asset[0]) { snprintf(msg, msglen, "There is no update to download."); return -1; }
     char temp[352];
     snprintf(temp, sizeof(temp), "%s.openpak-new", self);
     if (!download(temp, msg, msglen)) return -1;
-    if (!is_nro(temp)) {
+    if (!openpak_update_is_nro(temp)) {
         remove(temp);
         snprintf(msg, msglen, "What arrived is not an OpenPak build; nothing was replaced.");
         return -1;
