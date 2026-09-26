@@ -340,6 +340,13 @@ bool openpak_system_install(char *err,int errlen) {
     failure="Could not clear blank_prodinfo_emummc in exosphere.ini";
     if(!openpak_exosphere_blank(false,err,errlen))goto done;
     failure="Could not back up system setup";
+    // Our own overlay is never recorded as the file that was here first. Without this, a console
+    // whose /switch/openpak/system folder was deleted while OpenPak was on would back the overlay
+    // up as the original, and selecting Nintendo would restore it — leaving the OpenPak CA
+    // trusted by a console that asked to go back.
+    if(!exists(STATE "/certificate.original") && !exists(STATE "/certificate.absent") &&
+       exists(STORE) && openpak_store_file_is_ours() &&
+       !write_file(STATE "/certificate.absent","",0))goto done;
     if(!backup(BOOT,STATE "/boot.original",STATE "/boot.absent") ||
        !backup(STORE,STATE "/certificate.original",STATE "/certificate.absent"))goto done;
     failure="Could not save OpenPak boot package";
