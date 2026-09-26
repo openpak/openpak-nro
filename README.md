@@ -167,7 +167,7 @@ behave differently from one that did not.
 When the tool opens with a connection it fetches, from `openpak.org` only, the signed
 redirect ceiling (`/api/v1/network/ceiling`) and the Switch network profile
 (`/api/v1/network/profile?platform=switch`); the contract is
-[`docs/signed-ceiling.md`](docs/signed-ceiling.md). The ceiling is verified with Ed25519
+[`docs/signed-ceiling.md`](https://github.com/openpak/docs/blob/main/signed-ceiling.md). The ceiling is verified with Ed25519
 against the pinned key (TweetNaCl, verify only, `source/ed25519.c`), cached under
 `/switch/openpak/ceiling.json` exactly as received, and accepted only if its version is at
 least the highest one ever accepted (`ceiling.version`). Every profile name outside the
