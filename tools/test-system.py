@@ -86,7 +86,9 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     os.chdir(repo)   # ASSET is romfs/ca.der, relative to the repository
     api.openpak_store_file_is_ours.restype=c.c_bool;api.openpak_store_file_is_ours.argtypes=[]
     guard=tmp/'guard';overlay=guard/'atmosphere/contents/0100000000000800/romfs/ssl_TrustedCerts.bdf'
-    overlay.parent.mkdir(parents=True);c.c_char_p.in_dll(api,'openpak_root').value=str(guard).encode()
+    overlay.parent.mkdir(parents=True)
+    # Keep the bytes alive: openpak_root holds a pointer into this object, not a copy.
+    guard_bytes=str(guard).encode();c.c_char_p.in_dll(api,'openpak_root').value=guard_bytes
     real_ca=(repo/'romfs/ca.der').read_bytes()
     assert api.openpak_store_file_is_ours()                                     # nothing there to preserve
     ours=transform_with(source,real_ca)
