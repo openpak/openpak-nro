@@ -2,7 +2,7 @@
 
 Updated 2026-09-26.
 
-**v0.3.13 (2026-09-26):** two changes on top of v0.3.12, both host-tested, neither on
+**v0.3.13 / v0.3.14 (2026-09-26):** two changes on top of v0.3.12, both host-tested, neither on
 hardware yet.
 
 1. `source/system.c` — the certificate-overlay guard. Re-applying OpenPak failed with
@@ -27,7 +27,11 @@ console that reported it, and one update round-trip (offer, download, relaunch).
 cannot be tried from a console running v0.3.13 or earlier's predecessors — copy v0.3.13 across
 by hand once, then the next tag is the first real test of the updater.
 
-Current status 2026-09-26: latest tag v0.3.13, no tracked changes.
+Current status 2026-09-26: latest tag v0.3.14, no tracked changes. The repository is public
+as of 2026-09-26 — the self-update reads GitHub's release API, which answers nothing to an
+anonymous console on a private repository. v0.3.13's NRO validation rejected every real
+release (the header length excludes the appended assets); v0.3.14 fixes it, so v0.3.13 is the
+last build that cannot update itself.
 
 Earlier status 2026-09-24: latest tag v0.3.10 (a15d981), no tracked changes. Since
 the doc was last right: the 0.3.x system-certificate tree was committed

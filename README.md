@@ -105,8 +105,8 @@ analysis, and the exact hardware test and SD-reader recovery procedure.
 At launch, while the network is up for the ceiling fetch, the tool asks GitHub for the newest
 release of this repository. If it is ahead of the running build the message line offers it:
 **A** Update, **B** Not now. Accepting downloads that release's `openpak.nro` (or
-`openpak-console.nro` — each build updates to its own asset), checks that what arrived is an
-NRO, writes it over the file hbmenu loaded, and hands the console straight back to it, so the
+`openpak-console.nro` — each build updates to its own asset), checks that what arrived is a whole NRO (header, `ASET` header, last asset ending at the end
+of the file), writes it over the file hbmenu loaded, and hands the console straight back to it, so the
 new build is running seconds later without touching the SD card in a PC. A build that cannot
 be handed over says so and asks to be reopened.
 

@@ -24,6 +24,9 @@ bool openpak_update_newer(const char *tag, const char *mine);
 // The download URL comes off the network, so it is used only when it is this repository's
 // release asset for this build: <prefix>/<tag>/<name>, nothing deeper, nowhere else.
 bool openpak_update_asset_ok(const char *url, const char *name);
+// The file holds a whole homebrew NRO, assets and all: what must be true before it is written
+// over the running one.
+bool openpak_update_is_nro(const char *path);
 
 // Where the running NRO came from (argv[0]); call once at launch.
 void openpak_update_self(const char *argv0);
