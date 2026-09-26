@@ -2,6 +2,7 @@
 #include "netfetch.h"
 #include "ceiling.h"
 #include "hosts.h"
+#include "update.h"
 
 #include <curl/curl.h>
 #include <stdarg.h>
@@ -34,7 +35,7 @@ static size_t collect(char *p, size_t size, size_t n, void *u) {
 
 // One GET, 2 s to connect and 3 s overall, no retry: an offline console opens the tool
 // without waiting. Returns the body on 200, else NULL with err filled.
-static char *get(const char *url, size_t max, size_t *len, char *err, int errlen) {
+char *openpak_http_get(const char *url, size_t max, size_t *len, char *err, int errlen) {
     body b = {NULL, 0, max, false};
     CURL *c = curl_easy_init();
     if (!c) { snprintf(err, errlen, "could not start a request"); return NULL; }
@@ -99,7 +100,7 @@ void openpak_network_refresh(char *note, int notelen) {
 
     // The ceiling first: the profile is filtered through whichever ceiling is in force.
     size_t len = 0;
-    char *env = get(CEILING_URL, 64 * 1024, &len, err, sizeof(err));
+    char *env = openpak_http_get(CEILING_URL, 64 * 1024, &len, err, sizeof(err));
     if (env) {
         openpak_ceiling c;
         if (openpak_ceiling_accept(env, len, &c, err, sizeof(err)))
@@ -116,7 +117,7 @@ void openpak_network_refresh(char *note, int notelen) {
 
     // The profile is saved only if it parses and leaves something to install; a broken
     // answer never replaces a working saved copy.
-    char *profile = get(PROFILE_URL, 256 * 1024, &len, err, sizeof(err));
+    char *profile = openpak_http_get(PROFILE_URL, 256 * 1024, &len, err, sizeof(err));
     if (profile) {
         char dropped[256] = "";
         openpak_policy *p = openpak_profile_policy(profile, len, ceiling, OPENPAK_SOURCE_PROFILE,
@@ -138,6 +139,12 @@ void openpak_network_refresh(char *note, int notelen) {
         logline(log, "profile not fetched (%s); keeping the saved copy", err);
         snprintf(note, notelen, "Could not reach openpak.org: using the saved OpenPak network rules.");
     }
+
+    // While the socket is up: is there a newer build of this tool? Asked only — the download
+    // happens if the user accepts the offer the interface then shows.
+    char release[256] = "";
+    openpak_update_check(release, sizeof(release));
+    if (release[0]) logline(log, "%s", release);
 
     curl_global_cleanup();
     socketExit();

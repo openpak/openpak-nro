@@ -1,8 +1,35 @@
 # Next session — console/openpak-nro
 
-Updated 2026-09-24.
+Updated 2026-09-26.
 
-Current status 2026-09-24: latest tag v0.3.10 (a15d981), no tracked changes. Since
+**v0.3.13 (2026-09-26):** two changes on top of v0.3.12, both host-tested, neither on
+hardware yet.
+
+1. `source/system.c` — the certificate-overlay guard. Re-applying OpenPak failed with
+   "Certificate overlay changed; existing file preserved" on a console whose overlay is
+   OpenPak's own but not byte-identical to `/switch/openpak/system/certificate.managed`
+   (an older build wrote it from the live 63-entry list; v0.3.12 builds from the 127-entry
+   CertStore file). `openpak_store_file_is_ours()` now yields when slot 1033 carries the
+   OpenPak CA, or when the overlay is simply not there; a store OpenPak did not write is
+   still preserved and still stops setup. `tools/test-system.py` covers ownership without a
+   package3; the replace-on-reapply paths need
+   `python3 tools/test-system.py --package3 <official package3>`, which has not been run
+   (no local package3 on this machine).
+2. `source/update.[ch]` + `netfetch.c` + both mains — self-update. The release check rides
+   on the launch fetch; the offer is a prompt ahead of the reboot question; applying
+   downloads the build's own release asset over the NRO hbmenu loaded and
+   `envSetNextLoad`s it. No signature on the binary yet: HTTPS from the pinned repository
+   plus an NRO header check. If a signed release manifest ever exists, verify it in
+   `openpak_update_apply` with `ed25519.c`.
+
+Both NROs build in the devkitA64 image. What needs hardware: the failing re-apply on the
+console that reported it, and one update round-trip (offer, download, relaunch). The round-trip
+cannot be tried from a console running v0.3.13 or earlier's predecessors — copy v0.3.13 across
+by hand once, then the next tag is the first real test of the updater.
+
+Current status 2026-09-26: latest tag v0.3.13, no tracked changes.
+
+Earlier status 2026-09-24: latest tag v0.3.10 (a15d981), no tracked changes. Since
 the doc was last right: the 0.3.x system-certificate tree was committed
 (1c7fc5f) and released in v0.3.5 with the News subscription and NEX / Diablo
 II hosts; v0.3.7 hosts from the signed policy bundle, News status 2 + list

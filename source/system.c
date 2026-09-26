@@ -251,6 +251,18 @@ static uint8_t *system_store(size_t *size) {
 
 static bool managed_or_original(const char *p,const char *managed,const char *original,const char *absent);
 
+// An overlay carrying our CA in slot 1033 is ours whatever its layout: one an older build wrote
+// from the live certificate list (63 of the 127 entries, re-laid out), or the same file read back
+// through LayeredFS. Re-applying OpenPak may overwrite it. A file that is not there has nothing
+// to preserve either. Only a store somebody else put here is kept, and refused.
+bool openpak_store_file_is_ours(void) {
+    if(!exists(STORE))return true;
+    size_t n=0,cn=0;bool ours=false;
+    uint8_t *b=read_file(STORE,&n,false),*ca=read_file(ASSET "ca.der",&cn,true);
+    if(b&&ca)ours=openpak_store_is_ours(b,n,ca,cn);
+    free(b);free(ca);return ours;
+}
+
 
 // exosphere.ini's blank_prodinfo_emummc: 1 hides the console's identity from Nintendo (Prelude's
 // "Nintendo" mode sets it), but a blank identity has no device certificate, so under OpenPak
@@ -315,8 +327,9 @@ bool openpak_system_install(char *err,int errlen) {
     boot=read_file(exists(STATE "/boot.original")?STATE "/boot.original":BOOT,&bn,false);
     failure="No standard Hekate package3 entry found";
     if(!boot || !openpak_boot_build(boot,bn,&new_boot,&new_bn))goto done;
-    failure="Certificate overlay changed; existing file preserved";
-    if(!managed_or_original(STORE,STATE "/certificate.managed",STATE "/certificate.original",STATE "/certificate.absent"))goto done;
+    failure="Another tool's certificate overlay is in place; it was left alone";
+    if(!managed_or_original(STORE,STATE "/certificate.managed",STATE "/certificate.original",STATE "/certificate.absent")
+       && !openpak_store_file_is_ours())goto done;
     failure="OpenPak boot package changed; existing file preserved";
     if(exists(OPENPAK_PACKAGE) && !same_file(OPENPAK_PACKAGE,base,n))goto done;
     failure="Could not read the system certificates";
@@ -358,7 +371,8 @@ bool openpak_system_remove(char *err,int errlen) {
     }
     if(!exists(STATE "/boot.original") && !exists(STATE "/certificate.original") && !exists(STATE "/certificate.absent"))return true;
     if(!managed_or_original(BOOT,STATE "/boot.managed",STATE "/boot.original",STATE "/boot.absent") ||
-       !managed_or_original(STORE,STATE "/certificate.managed",STATE "/certificate.original",STATE "/certificate.absent")) {
+       (!managed_or_original(STORE,STATE "/certificate.managed",STATE "/certificate.original",STATE "/certificate.absent")
+        && !openpak_store_file_is_ours())) {
         snprintf(err,errlen,"System files changed; originals kept in /switch/openpak/system");return false;
     }
     if(!restore(BOOT,STATE "/boot.original",STATE "/boot.absent") ||
