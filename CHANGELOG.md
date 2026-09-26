@@ -5,6 +5,13 @@ of truth; this file is the readable summary.
 
 ## v0.3.14 — 2026-09-26
 
+- system: OpenPak's own overlay is never recorded as the file that was on the card first. A
+  console whose `/switch/openpak/system` folder was deleted while OpenPak was on would have
+  backed the active overlay up as the original, and selecting Nintendo would have restored it —
+  leaving the OpenPak CA trusted by a console that asked to go back. It now records that there
+  was no overlay, so disable takes it away. Covered by
+  `tools/test-system.py --package3 <official package3>`, which also now reproduces the re-apply
+  failure above: reverting the ownership check fails the suite with that exact message.
 - update: what arrives is accepted only when it is a whole NRO. v0.3.13 compared the length in
   the NRO header against the file size, but elf2nro appends the icon, the NACP and the romfs
   behind an `ASET` header after that length, so every real release failed the check and no update

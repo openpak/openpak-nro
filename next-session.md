@@ -13,8 +13,11 @@ hardware yet.
    OpenPak CA, or when the overlay is simply not there; a store OpenPak did not write is
    still preserved and still stops setup. `tools/test-system.py` covers ownership without a
    package3; the replace-on-reapply paths need
-   `python3 tools/test-system.py --package3 <official package3>`, which has not been run
-   (no local package3 on this machine).
+   `python3 tools/test-system.py --package3 <official package3>`, which does pass: fetch the
+   package3 from Atmosphère's public 1.11.2 release (its SHA-256 is the one pinned in
+   `system.c`) into the workspace scratch folder and point the test at it. Reverting the
+   ownership check makes that suite fail with the exact message the console reported, which is
+   as close to a hardware reproduction as this gets.
 2. `source/update.[ch]` + `netfetch.c` + both mains — self-update. The release check rides
    on the launch fetch; the offer is a prompt ahead of the reboot question; applying
    downloads the build's own release asset over the NRO hbmenu loaded and

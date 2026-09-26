@@ -135,6 +135,16 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             overlay.unlink()
             assert api.openpak_system_install(err,256),err.value
             assert overlay.read_bytes()==(state/'certificate.managed').read_bytes()
+            # The backup metadata deleted under an active overlay: ours is not the original, so
+            # disable must take it away rather than restore it. The metadata is put back
+            # afterwards, since the rest of this round still checks the original is honoured.
+            names=['certificate.original','certificate.absent','certificate.managed']
+            kept={n:(state/n).read_bytes() for n in names if (state/n).exists()}
+            for n in names:(state/n).unlink(missing_ok=True)
+            assert api.openpak_system_install(err,256),err.value
+            assert (state/'certificate.absent').exists() and not (state/'certificate.original').exists()
+            for n in names:(state/n).unlink(missing_ok=True)
+            for n,data in kept.items():(state/n).write_bytes(data)
             overlay.write_bytes((state/'certificate.managed').read_bytes())
             boot.write_bytes(boot_expected+b'# user edit\n')
             assert not api.openpak_system_remove(err,256)
