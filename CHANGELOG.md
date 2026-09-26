@@ -3,6 +3,22 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.13 — 2026-09-26
+
+- system: re-applying OpenPak no longer stops with "Certificate overlay changed; existing file
+  preserved" when the overlay on the card is OpenPak's own in a different layout — the one an
+  older build wrote from the live certificate list (63 of the 127 entries, re-laid out), or the
+  file read back through LayeredFS. Slot 1033 carrying the OpenPak CA is what identifies it as
+  ours; a missing overlay has nothing to preserve either. A store this tool did not write is
+  still kept and still stops setup, now saying so in those words.
+- update: the tool updates itself. At launch, while the network is already up for the ceiling
+  fetch, it asks GitHub for the newest release; if that tag is ahead of the running build the
+  message line offers it (**A** Update, **B** Not now). Accepting downloads this build's asset,
+  checks it is an NRO, writes it over the file hbmenu loaded and queues it as the next program
+  to run, so leaving the tool starts the new build. Nothing is downloaded without that yes, and
+  the URL is used only when it is a release asset of this repository. `source/update.c`;
+  release ordering and the URL check are in `make test`.
+
 ## v0.3.12 — 2026-09-25
 
 - hosts: the `.nintendo.net` family is written as its services (`*.s.n.srv`, `*.ndas.srv`,

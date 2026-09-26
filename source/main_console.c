@@ -7,6 +7,7 @@
 #include "system.h"
 #include "hosts.h"
 #include "netfetch.h"
+#include "update.h"
 #include "news.h"
 #include "installtrust.h"
 #include "crash.h"
@@ -87,7 +88,8 @@ enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 // What the online check at launch had to say ("" = it went through).
 static char net_note[128];
 
-static void draw(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
+static void draw(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
+                 bool offering) {
     const char *labels[IT_COUNT] = {"Nintendo", "OpenPak"};
     char values[IT_COUNT][64];
     for (int i = 0; i < IT_COUNT; i++)
@@ -116,6 +118,8 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
     if (openpak_policy_problem()[0]) printf("  \x1b[33m%s\x1b[0m\n\n", openpak_policy_problem());
     if (asking)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] send   [B] don't send   [X] always   [Y] never\n", status);
+    else if (offering)
+        printf("  \x1b[33m%s\x1b[0m\n\n  [A] update   [B] not now\n", status);
     else if (confirming)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] reboot now   [B] later\n", status[0] ? status : "Reboot to apply?");
     else {
@@ -127,7 +131,8 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
 }
 
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
+    // argv[0] is where hbmenu loaded this NRO from: the file an update replaces.
+    openpak_update_self(argc > 0 ? argv[0] : NULL);
     romfsInit();          // the CA bundle we ship lives in romfs:/
     consoleInit(NULL);
     openpak_report_init("console");
@@ -143,6 +148,8 @@ int main(int argc, char **argv) {
     char status[192] = "";
     bool on = openpak_enabled();
     bool confirm_reboot = false;
+    // The release check ran inside the refresh above; the offer waits behind the report question.
+    bool offer_update = openpak_update_tag()[0] != '\0', update_asked = false;
     int sel = on ? IT_OPENPAK : IT_NINTENDO;
     {
         // Warn a console that is on OpenPak but has been updated off 22.5.0.
@@ -155,7 +162,13 @@ int main(int argc, char **argv) {
     // Reports saved by an earlier run (a crash, a failed setup) are offered now.
     bool asking = openpak_report_offer(status, sizeof(status), "OpenPak saved a problem report last time.");
     if (!status[0] && redirects_changed(ip)) snprintf(status, sizeof(status), "%s", REDIRECTS_CHANGED);
-    draw(ip, on, sel, status, confirm_reboot, asking);
+    // The update question claims the line once the report question is answered: it is the one
+    // prompt that may fix whatever else the line would have said.
+    if (offer_update && !asking) {
+        snprintf(status, sizeof(status), "OpenPak %s is available. Download and restart?", openpak_update_tag());
+        update_asked = true;
+    }
+    draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
 
     while (appletMainLoop()) {
         padUpdate(&pad);
@@ -166,7 +179,7 @@ int main(int argc, char **argv) {
         if (asking) {
             if (down & (HidNpadButton_A | HidNpadButton_X)) {
                 if (down & HidNpadButton_X) openpak_report_set_consent(REPORT_ALWAYS);
-                draw(ip, on, sel, "Sending report...", false, false);
+                draw(ip, on, sel, "Sending report...", false, false, false);
                 openpak_report_send_all(status, sizeof(status));
             } else if (down & HidNpadButton_B) {
                 openpak_report_discard_all();
@@ -176,14 +189,38 @@ int main(int argc, char **argv) {
                 snprintf(status, sizeof(status), "Reports turned off. Nothing was sent.");
             } else { consoleUpdate(NULL); continue; }
             asking = false;
-            draw(ip, on, sel, status, confirm_reboot, asking);
+            if (offer_update && !update_asked) {
+                snprintf(status, sizeof(status), "OpenPak %s is available. Download and restart?",
+                         openpak_update_tag());
+                update_asked = true;
+            }
+            draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
+            continue;
+        }
+        if (offer_update) {
+            if (down & HidNpadButton_A) {
+                snprintf(status, sizeof(status), "Downloading OpenPak %s...", openpak_update_tag());
+                draw(ip, on, sel, status, false, false, false);
+                char msg[192] = "";
+                int done = openpak_update_apply(msg, sizeof(msg));
+                offer_update = false;
+                snprintf(status, sizeof(status), "%s", msg);
+                if (done < 0) openpak_report_failure("update", NULL, msg);
+                draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
+                if (done > 0) break;                  // the new build takes over as this exits
+                continue;
+            } else if (down & HidNpadButton_B) {
+                offer_update = false;
+                status[0] = '\0';
+            } else { consoleUpdate(NULL); continue; }
+            draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
             continue;
         }
         if (confirm_reboot) {
             if (down & HidNpadButton_A) reboot_console();
             else if (down & HidNpadButton_B) { confirm_reboot = false; status[0] = '\0'; }
             else { consoleUpdate(NULL); continue; }
-            draw(ip, on, sel, status, confirm_reboot, asking);
+            draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
             continue;
         }
 
@@ -199,7 +236,7 @@ int main(int argc, char **argv) {
             if (want_openpak && !openpak_firmware_supported(fw, sizeof(fw))) {
                 snprintf(status, sizeof(status),
                          "OpenPak requires firmware " OPENPAK_FIRMWARE " - this console runs %s", fw);
-                draw(ip, on, sel, status, confirm_reboot, asking);
+                draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
                 continue;
             }
             // Re-selecting the active network re-applies it, so an updated CA or host list
@@ -241,7 +278,7 @@ int main(int argc, char **argv) {
                 asking = openpak_report_offer(status, sizeof(status), status);
             }
         }
-        draw(ip, on, sel, status, confirm_reboot, asking);
+        draw(ip, on, sel, status, confirm_reboot, asking, offer_update);
     }
 
     consoleExit(NULL);

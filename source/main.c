@@ -13,6 +13,7 @@
 #include "system.h"
 #include "hosts.h"
 #include "netfetch.h"
+#include "update.h"
 #include "news.h"
 #include "installtrust.h"
 #include "crash.h"
@@ -138,7 +139,8 @@ static void draw_item(int x, int y, int w, int h, bool selected,
 // What the online check at launch had to say ("" = it went through).
 static char net_note[128];
 
-static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
+static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
+                   bool offering) {
     const int margin = 72;
     const int card_w = GFX_W - margin * 2;
 
@@ -176,7 +178,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
     int msg_y = card_y + card_h + 26;
     if (status[0]) {
         gfx_rounded(margin, msg_y, card_w, 56, 12, RAISED);
-        gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking) ? WARN : ACCENT);
+        gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking || offering) ? WARN : ACCENT);
         txt_draw(margin + 24, msg_y + 16, PX_BODY, TXT_LEFT, INK, "%s", status);
     } else {
         txt_draw(margin, msg_y + 16, PX_LABEL, TXT_LEFT, MUTED,
@@ -207,6 +209,9 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
         x += draw_hint(x, 628, "B", "Don't send");
         x += draw_hint(x, 628, "X", "Always");
         draw_hint(x, 628, "Y", "Never");
+    } else if (offering) {
+        x += draw_hint(x, 628, "A", "Update");
+        draw_hint(x, 628, "B", "Not now");
     } else if (confirming) {
         x += draw_hint(x, 628, "A", "Reboot now");
         draw_hint(x, 628, "B", "Later");
@@ -219,7 +224,8 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
 }
 
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
+    // argv[0] is where hbmenu loaded this NRO from: the file an update replaces.
+    openpak_update_self(argc > 0 ? argv[0] : NULL);
     romfsInit();          // the CA bundle we ship lives in romfs:/
     plInitialize(PlServiceType_User);
     openpak_report_init("sdl");
@@ -238,10 +244,12 @@ int main(int argc, char **argv) {
     char status[192] = "";
     bool on = openpak_enabled();
     // Online check first, so what the tool would install is openpak.org's current set.
-    render(OPENPAK_SERVER, on, on ? IT_OPENPAK : IT_NINTENDO, "Checking openpak.org for network updates...", false, false);
+    render(OPENPAK_SERVER, on, on ? IT_OPENPAK : IT_NINTENDO, "Checking openpak.org for network updates...", false, false, false);
     openpak_network_refresh(net_note, sizeof(net_note));
     load_ip(ip, sizeof(ip));
     bool confirm_reboot = false;
+    // The release check ran inside the refresh above; the offer waits behind the report question.
+    bool offer_update = openpak_update_tag()[0] != '\0', update_asked = false;
     int sel = on ? IT_OPENPAK : IT_NINTENDO;
     // A console that was on OpenPak and has since been updated off 22.5.0 is in an
     // unsupported state: warn at launch and point at the fix (select Nintendo, which
@@ -266,7 +274,7 @@ int main(int argc, char **argv) {
             if (down & (HidNpadButton_A | HidNpadButton_X)) {
                 if (down & HidNpadButton_X) openpak_report_set_consent(REPORT_ALWAYS);
                 snprintf(status, sizeof(status), "Sending report...");
-                render(ip, on, sel, status, false, false);
+                render(ip, on, sel, status, false, false, false);
                 openpak_report_send_all(status, sizeof(status));
                 asking = false;
             } else if (down & HidNpadButton_B) {
@@ -277,6 +285,23 @@ int main(int argc, char **argv) {
                 openpak_report_set_consent(REPORT_NEVER);
                 snprintf(status, sizeof(status), "Reports turned off. Nothing was sent.");
                 asking = false;
+            }
+        } else if (offer_update) {
+            if (down & HidNpadButton_A) {
+                snprintf(status, sizeof(status), "Downloading OpenPak %s...", openpak_update_tag());
+                render(ip, on, sel, status, false, false, false);
+                char msg[192] = "";
+                int done = openpak_update_apply(msg, sizeof(msg));
+                offer_update = false;
+                snprintf(status, sizeof(status), "%s", msg);
+                if (done > 0) {                          // the new build takes over as this exits
+                    render(ip, on, sel, status, false, false, false);
+                    break;
+                }
+                if (done < 0) openpak_report_failure("update", NULL, msg);
+            } else if (down & HidNpadButton_B) {
+                offer_update = false;
+                status[0] = '\0';
             }
         } else if (confirm_reboot) {
             if (down & HidNpadButton_A) reboot_console();
@@ -296,7 +321,7 @@ int main(int argc, char **argv) {
             if (want_openpak && !openpak_firmware_supported(fw, sizeof(fw))) {
                 snprintf(status, sizeof(status),
                          "OpenPak requires firmware " OPENPAK_FIRMWARE " — this console runs %s", fw);
-                render(ip, on, sel, status, confirm_reboot, asking);
+                render(ip, on, sel, status, confirm_reboot, asking, offer_update);
                 continue;
             }
             // Selecting the network already in use re-applies it rather than refusing: that is
@@ -340,7 +365,14 @@ int main(int argc, char **argv) {
                 asking = openpak_report_offer(status, sizeof(status), status);
             }
         }
-        render(ip, on, sel, status, confirm_reboot, asking);
+        // The update question claims the line once the report question is answered: it is the
+        // one prompt that may fix whatever else the line would have said.
+        if (offer_update && !asking && !update_asked) {
+            snprintf(status, sizeof(status), "OpenPak %s is available. Download and restart?",
+                     openpak_update_tag());
+            update_asked = true;
+        }
+        render(ip, on, sel, status, confirm_reboot, asking, offer_update);
     }
 
     txt_exit();

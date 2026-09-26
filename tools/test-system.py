@@ -28,12 +28,14 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     libc=c.CDLL(None);libc.free.argtypes=[c.c_void_p]
     source=struct.pack('<II',0x546c7373,2)+struct.pack('<IIII',1,1,4,32)+struct.pack('<IIII',1033,1,4,36)+b'keepold!'
     ca=b'new certificate'
-    def transform(data):
+    def transform_with(data,cert):
         out=c.c_void_p();size=c.c_size_t()
-        ok=api.openpak_store_replace(data,len(data),ca,len(ca),c.byref(out),c.byref(size))
+        ok=api.openpak_store_replace(data,len(data),cert,len(cert),c.byref(out),c.byref(size))
         result=c.string_at(out,size.value) if ok else None
         if out:libc.free(out)
         return result
+    def transform(data):
+        return transform_with(data,ca)
     result=transform(source);assert result
     assert result[:24]==source[:24] and result[40:48]==source[40:48]
     assert result[48:]==ca and struct.unpack_from('<II',result,32)==(len(ca),40)
@@ -79,6 +81,20 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     assert api.openpak_exosphere_blank(True,err,256),err.value
     assert exo.read_bytes()==b'[exosphere]\nblank_prodinfo_emummc=1\ndebugmode=1\n[other]\nx=1\n'
     print('PASS: exosphere blank_prodinfo_emummc: enable clears, disable sets, missing key inserted, sysmmc untouched, backup kept')
+    # The overlay guard, without needing a real package3: whose store is on the card.
+    import os
+    os.chdir(repo)   # ASSET is romfs/ca.der, relative to the repository
+    api.openpak_store_file_is_ours.restype=c.c_bool;api.openpak_store_file_is_ours.argtypes=[]
+    guard=tmp/'guard';overlay=guard/'atmosphere/contents/0100000000000800/romfs/ssl_TrustedCerts.bdf'
+    overlay.parent.mkdir(parents=True);c.c_char_p.in_dll(api,'openpak_root').value=str(guard).encode()
+    real_ca=(repo/'romfs/ca.der').read_bytes()
+    assert api.openpak_store_file_is_ours()                                     # nothing there to preserve
+    ours=transform_with(source,real_ca)
+    overlay.write_bytes(ours);assert api.openpak_store_file_is_ours()           # what this build writes
+    overlay.write_bytes(ours+b'\0\0\0\0');assert api.openpak_store_file_is_ours()  # our CA, another layout
+    overlay.write_bytes(source);assert not api.openpak_store_file_is_ours()     # the stock store
+    overlay.write_bytes(b'somebody else');assert not api.openpak_store_file_is_ours()
+    print('PASS: overlay ownership: ours in any layout or absent yields, a store we did not write is kept')
     if a.package3:
         import os
         original=a.package3.resolve().read_bytes();os.chdir(repo)
@@ -109,6 +125,14 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             assert overlay.read_bytes()==b'changed elsewhere'
             assert not api.openpak_system_remove(err,256)
             assert boot.read_bytes()==boot_expected
+            # An overlay of ours in another layout (what an older build wrote): re-apply replaces it.
+            overlay.write_bytes((state/'certificate.managed').read_bytes()+b'\0\0\0\0')
+            assert api.openpak_system_install(err,256),err.value
+            assert overlay.read_bytes()==(state/'certificate.managed').read_bytes()
+            # An overlay that is not there at all: nothing to preserve, so it is written again.
+            overlay.unlink()
+            assert api.openpak_system_install(err,256),err.value
+            assert overlay.read_bytes()==(state/'certificate.managed').read_bytes()
             overlay.write_bytes((state/'certificate.managed').read_bytes())
             boot.write_bytes(boot_expected+b'# user edit\n')
             assert not api.openpak_system_remove(err,256)
@@ -123,4 +147,4 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             assert api.openpak_system_install(err,256),err.value
             assert alternate.stat().st_ino==alternate_stat.st_ino
             assert api.openpak_system_remove(err,256),err.value
-        print('PASS: enable, reapply, interrupted activation, conflict refusal, disable; active package untouched')
+        print('PASS: enable, reapply, interrupted activation, our own overlay replaced, conflict refusal, disable; active package untouched')

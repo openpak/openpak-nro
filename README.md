@@ -100,6 +100,24 @@ firmware, and it ships **only once verified on hardware**. Until then the step i
 (kip_patches via fusee, since this console boots hekate → `pkg3=`), the candidate
 analysis, and the exact hardware test and SD-reader recovery procedure.
 
+## Updating itself
+
+At launch, while the network is up for the ceiling fetch, the tool asks GitHub for the newest
+release of this repository. If it is ahead of the running build the message line offers it:
+**A** Update, **B** Not now. Accepting downloads that release's `openpak.nro` (or
+`openpak-console.nro` — each build updates to its own asset), checks that what arrived is an
+NRO, writes it over the file hbmenu loaded, and hands the console straight back to it, so the
+new build is running seconds later without touching the SD card in a PC. A build that cannot
+be handed over says so and asks to be reopened.
+
+Nothing is downloaded until that yes. The download URL comes off the network, so it is used
+only when it is a release asset of this repository under
+`https://github.com/openpak/openpak-nro/releases/download/`; a development build
+(`git describe`, not a tag) is never offered an update. The binary itself carries no
+signature yet — it is trusted because the transfer is HTTPS from the pinned repository and
+the bytes parse as an NRO. The two decisions (is that release newer, is that URL ours) are
+`source/update.c`, checked by `make test`.
+
 ## Failure reports
 
 When this tool fails — an install or remove that stopped (hosts, CA, patch or system
@@ -243,7 +261,10 @@ configuration and any pre-existing certificate overlay are backed up in
 `/switch/openpak/system`. Disable restores them. The inactive OpenPak package
 is retained because it may still be open by the current boot; re-enable reuses
 an identical package without rewriting it. Independently changed configuration
-or certificate files are preserved, with setup stopped for review. Writes are
+files, and a certificate overlay OpenPak did not write, are preserved, with setup stopped for
+review. An overlay that carries the OpenPak CA is OpenPak's own whatever its layout — an
+older build wrote it from the live certificate list rather than the CertStore file — so
+re-applying replaces it instead of stopping. Writes are
 staged and read back before activation. Do not delete the backup folder while
 OpenPak is enabled.
 
