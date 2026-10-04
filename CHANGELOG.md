@@ -3,6 +3,14 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.17 — 2026-10-04 (updates through the eShop)
+
+- update: installed from OpenPak's own eShop, OpenPak runs as application `01fe000000000000`
+  and is updated through the console's update path (patch `01fe000000000800`), like every
+  store title. The GitHub self-update stands down there; the hbmenu NRO keeps it.
+- icon: a full-bleed square icon (the brand gradient, the OpenPak mark, the name) replaces the
+  round logo on a dark square, which read as a circle with black corners on HOME.
+
 ## v0.3.16 — 2026-10-04 (the Album opens the Album)
 
 - system: selecting OpenPak makes the Album open the Album again and keeps the Homebrew Menu one
