@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
@@ -466,4 +467,165 @@ bool openpak_system_remove(char *err,int errlen) {
     const char *files[]={"boot.original","boot.absent","boot.managed","certificate.original","certificate.absent","certificate.managed"};
     for(size_t i=0;i<sizeof(files)/sizeof(files[0]);++i) { char p[256];snprintf(p,sizeof(p),STATE "/%s",files[i]);if(!erase(p)) { snprintf(err,errlen,"Restored system; could not remove backup metadata");return false; } }
     return openpak_exosphere_blank(true,err,errlen);
+}
+
+// /atmosphere/config/override_config.ini, [hbl_config]: which programs Atmosphère's Loader swaps
+// for the Homebrew Menu (libstratosphere cfg_override.board.nintendo_nx.inc, 1.11.2). Slot 0 is
+// the Album (010000000000100D) with override_key_0=!R unless the file says otherwise: hbmenu
+// unless R is held. "R" turns that round, hbmenu only while R is held, so the Album opens the
+// Album. The Loader rereads the file at every launch, the way inih reads it: ';' and '#' start a
+// comment line and a ';' after whitespace an inline one, '=' or ':' separates, sections and
+// names in any case, an indented line continues the previous value, the last value wins, and
+// program_id and override_key are slot 0's too. No file is all defaults.
+#define OVERRIDE "/atmosphere/config/override_config.ini"
+#define ALBUM 0x010000000000100DULL
+static const char album_file[]="[hbl_config]\nprogram_id_0=010000000000100D\noverride_key_0=R\n";
+
+static bool ini_space(uint8_t c) { return c==' '||c=='\t'||c=='\r'||c=='\v'||c=='\f'; }
+static bool ini_name(const uint8_t *s,size_t n,const char *name) { return n==strlen(name) && !strncasecmp((const char *)s,name,n); }
+// inih's find_chars_or_comment: the first of chars, or a ';' that follows whitespace.
+static size_t ini_find(const uint8_t *s,size_t at,size_t end,const char *chars) {
+    bool was_space=false;
+    for(;at<end && !(chars && strchr(chars,s[at])) && !(was_space && s[at]==';');++at)was_space=ini_space(s[at]);
+    return at;
+}
+
+int openpak_album_build(const uint8_t *s,size_t n,uint8_t **out,size_t *out_size) {
+    const char *add=album_file;size_t at=0,cut=0;char line[64];   // add goes in at `at`, over cut bytes
+    if(!s)n=0;
+    else {
+        if(n>65536 || memchr(s,0,n))return -1;
+        unsigned long long slot[8]={ALBUM};
+        bool hbl=false,first=false,seen=false,have_key=false;
+        size_t key_at=0,key_end=0,insert=0,prev_at=0,prev_len=0;   // prev: the name a continuation extends
+        for(size_t i=0;i<n;) {
+            size_t b=i,e=i;while(e<n && s[e]!='\n')++e;size_t next=e<n?e+1:e;i=next;
+            if(b==0 && n>=3 && !memcmp(s,"\xEF\xBB\xBF",3))b=3;
+            size_t ve=e;while(ve>b && ini_space(s[ve-1]))--ve;
+            size_t st=b;while(st<ve && ini_space(s[st]))++st;
+            if(st==ve)continue;                                   // blank
+            size_t name=prev_at,name_len=prev_len,vs=st;
+            if(s[st]==';' || s[st]=='#') name_len=0;
+            else if(prev_len && st>b) {}                          // continuation: the whole line is the value
+            else if(s[st]=='[') {
+                size_t c=ini_find(s,st+1,ve,"]");
+                if(c<ve && s[c]==']') {
+                    hbl=ini_name(s+st+1,c-st-1,"hbl_config");prev_len=0;
+                    first=hbl && !seen;seen|=hbl;
+                }
+                name_len=0;
+            } else {
+                size_t sep=ini_find(s,st,ve,"=:");
+                if(sep<ve && (s[sep]=='=' || s[sep]==':')) {
+                    name=prev_at=st;name_len=sep-st;while(name_len && ini_space(s[st+name_len-1]))--name_len;
+                    prev_len=name_len;
+                    vs=sep+1;ve=ini_find(s,vs,ve,NULL);
+                    while(vs<ve && ini_space(s[vs]))++vs;
+                    while(ve>vs && ini_space(s[ve-1]))--ve;
+                } else name_len=0;                                // inih skips the line
+            }
+            // The end of the first [hbl_config], blank lines aside: where a missing key goes.
+            if(first)insert=next;
+            if(!hbl || !name_len)continue;
+            char value[64];snprintf(value,sizeof(value),"%.*s",(int)(ve-vs),(const char *)s+vs);
+            const uint8_t *k=s+name;
+            if(ini_name(k,name_len,"program_id"))slot[0]=strtoull(value,NULL,16);
+            else if(name_len==12 && !strncasecmp((const char *)k,"program_id_",11) && k[11]>='0' && k[11]<='7')
+                slot[k[11]-'0']=strtoull(value,NULL,16);
+            else if(ini_name(k,name_len,"override_key") || ini_name(k,name_len,"override_key_0")) {
+                have_key=true;key_at=vs;key_end=ve;
+            }
+        }
+        // Somebody chose what slot 0 overrides, or sends the Album to hbmenu from another slot.
+        if(slot[0]!=ALBUM)return -1;
+        for(int i=1;i<8;++i) if(slot[i]==ALBUM)return -1;
+        char key[8]="!R";
+        if(have_key) {
+            if(key_end-key_at>=sizeof(key))return -1;
+            memcpy(key,s+key_at,key_end-key_at);key[key_end-key_at]=0;
+        }
+        if(!strcasecmp(key,"R"))return 0;
+        if(strcasecmp(key,"!R"))return -1;                        // a key somebody else chose
+        if(have_key) { at=key_at;cut=key_end-key_at;add="R"; }
+        else {
+            at=seen?insert:n;
+            // The next line that is not blank or a comment must not become more of our value.
+            for(size_t j=at;j<n;) {
+                size_t t=j;while(t<n && ini_space(s[t]))++t;
+                if(t<n && s[t]!='\n' && s[t]!=';' && s[t]!='#') { if(t>j)return -1;break; }
+                while(t<n && s[t]!='\n')++t;
+                j=t+1;
+            }
+            const uint8_t *nl=memchr(s,'\n',n);
+            const char *eol=nl && nl>s && nl[-1]=='\r'?"\r\n":"\n";
+            snprintf(line,sizeof(line),"%s%s%soverride_key_0=R%s",at && s[at-1]!='\n'?eol:"",
+                     seen?"":"[hbl_config]",seen?"":eol,eol);
+            add=line;
+        }
+    }
+    size_t al=strlen(add),size=n-cut+al;
+    uint8_t *b=malloc(size);if(!b)return -2;
+    if(at)memcpy(b,s,at);
+    memcpy(b+at,add,al);
+    if(n>at+cut)memcpy(b+at+al,s+at+cut,n-at-cut);
+    *out=b;*out_size=size;return 1;
+}
+
+#define ALBUM_MANAGED STATE "/album.managed"
+#define ALBUM_ORIGINAL STATE "/album.original"
+#define ALBUM_ABSENT STATE "/album.absent"
+static bool album_tracked(void) { return exists(ALBUM_MANAGED) || exists(ALBUM_ORIGINAL) || exists(ALBUM_ABSENT); }
+
+bool openpak_album_install(char *note,int len) {
+    note[0]='\0';
+    if(!recover_file(OVERRIDE)) { snprintf(note,len,"Could not recover override_config.ini."); return false; }
+    bool ok=false,present=exists(OVERRIDE);
+    size_t n=0,sn=0,on=0;uint8_t *file=present?read_file(OVERRIDE,&n,false):NULL,*saved=NULL,*out=NULL;
+    const uint8_t *from=file,*want;size_t fn=n,wn;int r;
+    const char *failure="Could not read override_config.ini.";
+    if(present && !file)goto done;
+    failure="Could not record the Album setup.";
+    if(!album_tracked()) {
+        // A file exactly as OpenPak creates it is OpenPak's, also with the record of it gone: no
+        // file was there first, so disable deletes it.
+        if(file && n==sizeof(album_file)-1 && !memcmp(file,album_file,n) &&
+           (!write_file(ALBUM_ABSENT,"",0) || !write_file(ALBUM_MANAGED,file,n)))goto done;
+    } else if(!managed_or_original(OVERRIDE,ALBUM_MANAGED,ALBUM_ORIGINAL,ALBUM_ABSENT)) {
+        // Changed since OpenPak edited it: whoever changed it keeps it.
+        ok=file && openpak_album_build(file,n,&out,&on)==0;
+        failure="Album left as it is: override_config.ini changed after OpenPak edited it.";
+        goto done;
+    }
+    // Built from the file that was here first, as hekate_ipl.ini is.
+    failure="Could not read the saved override_config.ini.";
+    if(exists(ALBUM_ORIGINAL)) { if(!(saved=read_file(ALBUM_ORIGINAL,&sn,false)))goto done;from=saved;fn=sn; }
+    else if(exists(ALBUM_ABSENT)) { from=NULL;fn=0; }
+    r=openpak_album_build(from,fn,&out,&on);
+    failure=r==-2?"Out of memory.":"Album left as it is: override_config.ini has its own Homebrew Menu setup.";
+    if(r<0)goto done;
+    if(r==0 && !album_tracked()) { ok=true;goto done; }         // already so, and the user's: nothing to record
+    want=r?out:from;wn=r?on:fn;
+    failure="Could not back up override_config.ini.";
+    if(!backup(OVERRIDE,ALBUM_ORIGINAL,ALBUM_ABSENT))goto done;
+    failure="Could not record the Album setup.";
+    if(!write_file(ALBUM_MANAGED,want,wn))goto done;
+    failure="Could not update override_config.ini.";
+    ok=replace_file(OVERRIDE,want,wn);
+done:
+    if(!ok)snprintf(note,len,"%s",failure);
+    free(file);free(saved);free(out);return ok;
+}
+
+bool openpak_album_remove(char *note,int len) {
+    note[0]='\0';
+    if(!recover_file(OVERRIDE)) { snprintf(note,len,"Could not recover override_config.ini."); return false; }
+    if(!album_tracked())return true;
+    if(!managed_or_original(OVERRIDE,ALBUM_MANAGED,ALBUM_ORIGINAL,ALBUM_ABSENT)) {
+        snprintf(note,len,"override_config.ini changed after OpenPak edited it; left as it is.");return false;
+    }
+    if(!restore(OVERRIDE,ALBUM_ORIGINAL,ALBUM_ABSENT)) { snprintf(note,len,"Could not restore override_config.ini.");return false; }
+    if(!erase(ALBUM_MANAGED) || !erase(ALBUM_ORIGINAL) || !erase(ALBUM_ABSENT)) {
+        snprintf(note,len,"Restored override_config.ini; could not remove its backup.");return false;
+    }
+    return true;
 }

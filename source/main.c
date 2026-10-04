@@ -140,6 +140,10 @@ static void draw_item(int x, int y, int w, int h, bool selected,
 static char net_note[128];
 // Set after enable when a KIP in /atmosphere/kips takes the place of OpenPak's Loader.
 static char loader_note[160];
+// What the Album does now, after enable; why override_config.ini was left alone, after either.
+#define ALBUM_NOTE "Album now opens the Album — hold R on Album for the Homebrew Menu"
+static char album_note[160];
+static bool album_ok;
 
 static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
                    bool offering) {
@@ -183,6 +187,8 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
         gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking || offering) ? WARN : ACCENT);
         txt_draw(margin + 24, msg_y + 16, PX_BODY, TXT_LEFT, INK, "%s", status);
         if (loader_note[0]) txt_draw(margin, msg_y + 76, PX_LABEL, TXT_LEFT, WARN, "%s", loader_note);
+        if (album_note[0])
+            txt_draw(margin, msg_y + (loader_note[0] ? 102 : 76), PX_LABEL, TXT_LEFT, album_ok ? INK : WARN, "%s", album_note);
     } else {
         txt_draw(margin, msg_y + 16, PX_LABEL, TXT_LEFT, MUTED,
                  "Changes apply at boot — dns_mitm reads the hosts files then.");
@@ -204,6 +210,8 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
             txt_draw(margin, msg_y + 68, PX_LABEL, TXT_LEFT, MUTED, "%s", net_note);
         if (loader_note[0])
             txt_draw(margin, msg_y + 94, PX_LABEL, TXT_LEFT, WARN, "%s", loader_note);
+        if (album_note[0])
+            txt_draw(margin, msg_y + (loader_note[0] ? 120 : 94), PX_LABEL, TXT_LEFT, album_ok ? INK : WARN, "%s", album_note);
     }
 
     // Footer
@@ -363,6 +371,10 @@ int main(int argc, char **argv) {
                              "Store titles will not launch: /atmosphere/kips/%s replaces OpenPak's Loader.", kip);
                 else
                     loader_note[0] = '\0';
+                // Never fails the switch either: a file left as it is only gets a note.
+                album_ok = want_openpak ? openpak_album_install(album_note, sizeof(album_note))
+                                        : openpak_album_remove(album_note, sizeof(album_note));
+                if (album_ok) snprintf(album_note, sizeof(album_note), "%s", want_openpak ? ALBUM_NOTE : "");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
                 openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);

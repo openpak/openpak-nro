@@ -132,6 +132,100 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     assert (kips/'hoc.kip').read_bytes()==loader
     (kips/'hoc.kip').rename(kips/'hoc.kip1');assert api.openpak_loader_override(name,64) and name.value==b'hoc.kip1'
     print('PASS: a Loader override in /atmosphere/kips is found the way fusee finds it, and left alone')
+    # The Album opens the Album; hbmenu while R is held (override_config.ini, [hbl_config]).
+    api.openpak_album_build.restype=c.c_int
+    api.openpak_album_build.argtypes=[c.c_char_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
+    api.openpak_album_install.restype=api.openpak_album_remove.restype=c.c_bool
+    api.openpak_album_install.argtypes=api.openpak_album_remove.argtypes=[c.c_char_p,c.c_int]
+    def album(data):
+        out=c.c_void_p();size=c.c_size_t()
+        r=api.openpak_album_build(data,len(data) if data is not None else 0,c.byref(out),c.byref(size))
+        result=c.string_at(out,size.value) if r==1 else r
+        if out:libc.free(out)
+        return result
+    created=b'[hbl_config]\nprogram_id_0=010000000000100D\noverride_key_0=R\n'
+    # Atmosphère 1.11.2's config_templates/override_config.ini, as a user would copy it in.
+    template=(b'[hbl_config]\n; Program Specific Config\n; Up to 8 program-specific configurations can be set.\n'
+              b'; program_id_0=010000000000100D\n; override_address_space=39_bit\n; override_key_0=!R\n\n'
+              b'; override_any_app=true\n; override_any_app_key=R\n; path=atmosphere/hbl.nsp\n\n'
+              b'[default_config]\n; override_key=!L\n; cheat_enable_key=!L')
+    assert album(None)==created
+    assert album(template)==template.replace(b'hbl.nsp\n\n',b'hbl.nsp\noverride_key_0=R\n\n')
+    crlf=b'; mine\r\n[default_config]\r\noverride_key=!L\r\n[HBL_Config]\r\npath=/x/hbl.nsp\r\noverride_key_0 = !R ; hbmenu\r\noverride_any_app=false\r\n'
+    assert album(crlf)==crlf.replace(b'= !R ;',b'= R ;')                                  # in place, comment and CRLF kept
+    assert album(b'[default_config]\r\noverride_key=!L')==b'[default_config]\r\noverride_key=!L\r\n[hbl_config]\r\noverride_key_0=R\r\n'
+    assert album(b'')==b'[hbl_config]\noverride_key_0=R\n'
+    assert album(b'[hbl_config]\nprogram_id=0x010000000000100d\noverride_key: !r\n')==b'[hbl_config]\nprogram_id=0x010000000000100d\noverride_key: R\n'
+    assert album(b'[hbl_config]\noverride_key_0=!L\noverride_key_0=!R\n')==b'[hbl_config]\noverride_key_0=!L\noverride_key_0=R\n'   # the last one counts
+    assert album(b'[hbl_config]\noverride_key_0=!R\n  R\n')==0                         # a continuation is the value
+    assert album(created)==0 and album(b'[hbl_config]\noverride_key_0=r\n')==0
+    for foreign in [b'[hbl_config]\nprogram_id_0=0100000000001000\n',               # another title is hbl's
+                    b'[hbl_config]\nprogram_id_0=0100000000001000\noverride_key_0=R\n',
+                    b'[hbl_config]\noverride_key_0=!L\n',b'[hbl_config]\noverride_key=ZR\n',b'[hbl_config]\noverride_key_0=\n',
+                    b'[hbl_config]\noverride_key_0=!R;x\n',                         # no space: part of the value
+                    b'[hbl_config]\nprogram_id_3=010000000000100D\n',                # the Album from another slot
+                    b'[hbl_config]\n\n  [default_config]\n',                         # would continue our line
+                    b'[hbl_config]\nkey\0\n']:
+        assert album(foreign)==-1,foreign
+    # An indented line after a value continues it: still [hbl_config], so ours goes after it.
+    assert album(b'[hbl_config]\nx=1\n\n  [default_config]\n')==b'[hbl_config]\nx=1\n\n  [default_config]\noverride_key_0=R\n'
+    assert album(b'[hbl_config]\n; program_id_0=0100000000001000\n[other]\nprogram_id_0=0\n')==\
+        b'[hbl_config]\n; program_id_0=0100000000001000\noverride_key_0=R\n[other]\nprogram_id_0=0\n'
+    aroot=tmp/'album';astate=aroot/'switch/openpak/system';astate.mkdir(parents=True)
+    aroot_bytes=str(aroot).encode();c.c_char_p.in_dll(api,'openpak_root').value=aroot_bytes
+    ini=aroot/'atmosphere/config/override_config.ini';previous=Path(str(ini)+'.openpak-previous')
+    note=c.create_string_buffer(160)
+    def records():
+        return sorted(p.name for p in astate.glob('album.*'))
+    # No file: created, and disable deletes it.
+    assert api.openpak_album_install(note,160),note.value
+    assert ini.read_bytes()==created and records()==['album.absent','album.managed'] and note.value==b''
+    st=ini.stat();assert api.openpak_album_install(note,160)                          # re-apply: not rewritten
+    assert ini.stat().st_ino==st.st_ino and ini.stat().st_mtime_ns==st.st_mtime_ns
+    assert api.openpak_album_remove(note,160),note.value
+    assert not ini.exists() and records()==[] and ini.parent.is_dir()
+    # The record lost while on: a file exactly as OpenPak creates it is still OpenPak's.
+    assert api.openpak_album_install(note,160);[p.unlink() for p in astate.glob('album.*')]
+    assert api.openpak_album_install(note,160) and records()==['album.absent','album.managed']
+    assert api.openpak_album_remove(note,160) and not ini.exists()
+    # The user's file, other sections and comments kept byte for byte; disable puts it back.
+    for original in [template,crlf]:
+        ini.write_bytes(original)
+        assert api.openpak_album_install(note,160),note.value
+        assert ini.read_bytes()==album(original) and (astate/'album.original').read_bytes()==original
+        before=ini.read_bytes();assert api.openpak_album_install(note,160) and ini.read_bytes()==before
+        # Power lost mid-write: the file is the .openpak-previous copy; both directions recover.
+        ini.rename(previous)
+        assert api.openpak_album_install(note,160),note.value
+        assert ini.read_bytes()==before and not previous.exists()
+        ini.rename(previous)
+        assert api.openpak_album_remove(note,160),note.value
+        assert ini.read_bytes()==original and not previous.exists() and records()==[]
+    # Already R and the user's: nothing written, nothing recorded, nothing to undo.
+    ini.write_bytes(b'[hbl_config]\r\noverride_key_0=R\r\n');st=ini.stat()
+    assert api.openpak_album_install(note,160) and records()==[]
+    assert api.openpak_album_remove(note,160) and ini.stat().st_mtime_ns==st.st_mtime_ns
+    # Somebody else's hbl setup: kept, said so, Enable not failed by it.
+    for foreign in [b'[hbl_config]\nprogram_id_0=0100000000001000\n',b'[hbl_config]\noverride_key_0=!ZL\n']:
+        ini.write_bytes(foreign)
+        assert not api.openpak_album_install(note,160)
+        assert note.value==b'Album left as it is: override_config.ini has its own Homebrew Menu setup.',note.value
+        assert ini.read_bytes()==foreign and records()==[]
+        assert api.openpak_album_remove(note,160) and ini.read_bytes()==foreign
+    # Changed after OpenPak edited it: whoever changed it keeps it, and the original stays saved.
+    ini.write_bytes(template);assert api.openpak_album_install(note,160)
+    ini.write_bytes(album(template)+b'\n[default_config]\noverride_key=!R\n')         # still Album/R: fine
+    assert api.openpak_album_install(note,160) and note.value==b''
+    ini.write_bytes(template)                                                          # the user put !R back
+    ini.write_bytes(template.replace(b'; override_key_0=!R',b'override_key_0=!L'))
+    assert not api.openpak_album_install(note,160)
+    assert note.value==b'Album left as it is: override_config.ini changed after OpenPak edited it.'
+    assert not api.openpak_album_remove(note,160) and b'left as it is' in note.value
+    assert (astate/'album.original').read_bytes()==template
+    ini.write_bytes(album(template))                                                   # back to what we wrote
+    assert api.openpak_album_remove(note,160) and ini.read_bytes()==template and records()==[]
+    print('PASS: Album: absent/default/other sections kept, own file re-applied, foreign hbl setup kept and noted, '
+          'disable restores bytes or deletes, interrupted writes recovered')
     if not a.package3:
         print('SKIP: real-package build, install and upgrade (no --package3, none in the workspace)')
     if a.package3:

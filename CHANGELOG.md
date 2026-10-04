@@ -3,6 +3,26 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.16 — 2026-10-04 (the Album opens the Album)
+
+- system: selecting OpenPak makes the Album open the Album again and keeps the Homebrew Menu one
+  button away: hold R while opening the Album. OpenPak is a HOME title from its own eShop now,
+  so hbmenu is no longer the everyday launcher. `override_key_0` in `[hbl_config]` of
+  `/atmosphere/config/override_config.ini` goes from Atmosphère's default `!R` to `R` (checked
+  against 1.11.2's `cfg_override.board.nintendo_nx.inc`: a leading `!` means "hbl unless held").
+  Only that key is touched; a missing file is created with the Album and `R`. The file as found,
+  or its absence, is saved under `/switch/openpak/system/album.*`, and selecting Nintendo
+  restores those bytes or deletes the file. Writes go through the same temp-file, rename and
+  recovery as the boot entry.
+- system: an hbl setup somebody chose (another title in slot 0, the Album in another slot, a
+  key other than `!R`/`R`) or a file changed after OpenPak edited it is left as it is, with a
+  note on the message line; it never fails Enable or Disable. The file is read with inih's
+  rules; `tools/test-system.py` covers absent, template, other sections and CRLF, re-apply,
+  foreign setups, restore and interrupted writes, and the parser was checked against
+  Atmosphère's own inih on 6000 generated files.
+- ui: after enable both builds say "Album now opens the Album — hold R on Album for the
+  Homebrew Menu" (a plain dash in the text build).
+
 ## v0.3.15 — 2026-10-04 (store trust)
 
 - system: selecting OpenPak now makes the OpenPak eShop's titles launch. These are self-built
