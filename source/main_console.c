@@ -89,6 +89,11 @@ enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 static char net_note[128];
 // Set after enable when a KIP in /atmosphere/kips takes the place of OpenPak's Loader.
 static char loader_note[160];
+// What the Album does now, after enable; why override_config.ini was left alone, after either.
+// ASCII only: the console font has no dash.
+#define ALBUM_NOTE "Album now opens the Album - hold R on Album for the Homebrew Menu"
+static char album_note[160];
+static bool album_ok;
 
 static void draw(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
                  bool offering) {
@@ -119,6 +124,7 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
     if (net_note[0]) printf("  %s\n\n", net_note);
     if (openpak_policy_problem()[0]) printf("  \x1b[33m%s\x1b[0m\n\n", openpak_policy_problem());
     if (loader_note[0]) printf("  \x1b[31m%s\x1b[0m\n\n", loader_note);
+    if (album_note[0]) printf("  %s%s\x1b[0m\n\n", album_ok ? "" : "\x1b[33m", album_note);
     if (asking)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] send   [B] don't send   [X] always   [Y] never\n", status);
     else if (offering)
@@ -276,6 +282,10 @@ int main(int argc, char **argv) {
                              "Store titles will not launch: /atmosphere/kips/%s replaces OpenPak's Loader.", kip);
                 else
                     loader_note[0] = '\0';
+                // Never fails the switch either: a file left as it is only gets a note.
+                album_ok = want_openpak ? openpak_album_install(album_note, sizeof(album_note))
+                                        : openpak_album_remove(album_note, sizeof(album_note));
+                if (album_ok) snprintf(album_note, sizeof(album_note), "%s", want_openpak ? ALBUM_NOTE : "");
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
                 openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);

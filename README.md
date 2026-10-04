@@ -105,6 +105,33 @@ OpenPak's; enable names it in a warning and leaves it alone. Proven on hardware
 [`docs/install-trust.md`](docs/install-trust.md) for the derivation, the package
 layout, upgrading from the `ams_mitm`-only package, and recovery.
 
+## The Album opens the Album (0.3.16)
+
+OpenPak is a HOME-menu title now (`01FE000000000000`, from its own eShop), so the Homebrew
+Menu stops being the everyday launcher. Atmosphère opens the Homebrew Menu in place of the
+Album (`010000000000100D`) unless R is held. Selecting **OpenPak** turns that round: the Album
+opens the Album, and holding **R** while opening it gives the Homebrew Menu. The message
+line says so after enable.
+
+What changes is one key of `/atmosphere/config/override_config.ini`, section `[hbl_config]`:
+`override_key_0` goes from `!R` (Atmosphère's default, "hbmenu unless R") to `R` ("hbmenu
+only while R"). An existing `override_key_0`/`override_key` value is edited in place; a
+missing one is added at the end of `[hbl_config]` (or a `[hbl_config]` section is added);
+every other line, section, comment and line ending stays as it was. With no file at all,
+one is created: `[hbl_config]`, `program_id_0=010000000000100D`, `override_key_0=R`. The
+file as found (or the fact that there was none) is kept in `/switch/openpak/system`
+(`album.original`, `album.absent`, `album.managed`); selecting **Nintendo** puts those exact
+bytes back, or deletes the file OpenPak created.
+
+The file is read the way Atmosphère's Loader reads it (inih: comments, inline `;` comments,
+`=` or `:`, any case, continuation lines, last value wins, `program_id`/`override_key` as
+slot 0). If it sends another title to the Homebrew Menu in slot 0, puts the Album in another
+slot, or uses a key other than `!R`/`R`, it is somebody's choice: left as it is, with a note,
+and the rest of OpenPak still applies. A file changed after OpenPak edited it is likewise
+kept, by enable and disable alike. The Loader rereads the file at every launch, so enable
+takes effect at once; after disable Atmosphère keeps what it last read until the reboot
+offered there.
+
 ## Updating itself
 
 At launch, while the network is up for the ceiling fetch, the tool asks GitHub for the newest

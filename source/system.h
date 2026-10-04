@@ -20,3 +20,10 @@ bool openpak_store_replace(const uint8_t *source, size_t source_size,
                           const uint8_t *ca, size_t ca_size, uint8_t **out, size_t *out_size);
 
 bool openpak_boot_build(const uint8_t *source, size_t size, uint8_t **out, size_t *out_size);
+// /atmosphere/config/override_config.ini: the Album opens the Album, the Homebrew Menu only while
+// R is held. 1: *out is the file edited to that (from no file: NULL); 0: it already is;
+// -1: its hbl setup is somebody else's choice, left alone; -2: out of memory.
+int openpak_album_build(const uint8_t *source, size_t size, uint8_t **out, size_t *out_size);
+// Never part of Enable/Disable failing: false leaves the file as it is and says why in note.
+bool openpak_album_install(char *note, int len);   // true: the Album opens the Album
+bool openpak_album_remove(char *note, int len);    // true: the file is as it was before enable
