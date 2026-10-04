@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-# Host-side checks for the shipped IPS patch artifacts and the Store-installs
-# payload state. No console needed. Run from the repo root (make test).
+# Host-side checks for the shipped IPS patch artifacts. No console needed. Run from the repo
+# root (make test).
 import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BCAT_BUILD = "6D9772A733E2370B3F401EFEB7CA8F664309BD66000000000000000000000000"
-FS_HASH = "536d938469fe73be3c76da0333b289c0ed29f10c2a8afdff8e466142c4277359"
 
 fails = []
 
@@ -55,23 +54,15 @@ if os.path.exists(dauth_ips):
     check(len(recs) == 1 and recs[0][0] == 0xfc8a4 and len(recs[0][1]) == 8,
           f"news_no_dauth record unexpected: {recs!r}")
 
-# 3. Store-installs FS payload is PENDING: no .ips shipped, so the step installs
-#    nothing until a hardware-verified patch is dropped in.
-payload = os.path.join(ROOT, "romfs/patches/kip_patches/openpak_fs_no_ncasig")
-ips_in_payload = [f for f in os.listdir(payload) if f.endswith(".ips")] if os.path.isdir(payload) else []
-check(ips_in_payload == [], f"FS payload must be empty of .ips (pending), found {ips_in_payload}")
-
-# 4. The FS candidate lives OUTSIDE the payload, is gated on the FS hash, and is
-#    deliberately not a .ips so no copy logic can ship it.
-cand_dir = os.path.join(ROOT, "docs/install-trust")
-cand = os.path.join(cand_dir, FS_HASH + ".ips.pending")
-check(os.path.exists(cand), "FS candidate marker missing")
-check(not any(f.endswith(".ips") for f in os.listdir(cand_dir)) if os.path.isdir(cand_dir) else True,
-      "no raw .ips may sit in docs/install-trust (candidate only)")
+# 3. The store-trust FS change is compiled into OpenPak's fusee (romfs/system/fusee-1.11.2.bin,
+#    docs/install-trust.md). Atmosphere 1.11.2's fusee reads no /atmosphere/kip_patches, so no
+#    kip_patches payload may ship: it would look installed and do nothing.
+check(not os.path.exists(os.path.join(ROOT, "romfs/patches/kip_patches")),
+      "romfs/patches/kip_patches must not ship (fusee 1.11.2 never reads it)")
 
 if fails:
     print("patch/payload checks FAILED:")
     for f in fails:
         print("  -", f)
     sys.exit(1)
-print("patch artifacts and Store-installs payload: all checks passed")
+print("patch artifacts: all checks passed")

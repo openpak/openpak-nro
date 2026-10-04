@@ -3,6 +3,39 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.15 — 2026-10-04 (store trust)
+
+- system: selecting OpenPak now makes the OpenPak eShop's titles launch. These are self-built
+  NSPs with no rights ID and program ids `0x01FE…`, and two console checks stopped them; the boot
+  package `/atmosphere/package3-openpak` now changes both. Its Loader
+  (`romfs/system/loader-1.11.2.kip`) accepts an invalid NPDM ACID signature for the `0x01FE…`
+  range only; Atmosphère's Loader does enforce ACID on retail, which v0.3.7's notes denied. Its
+  fusee (`romfs/system/fusee-1.11.2.bin`) applies one compiled-in patch to the stock FS 22.5.0
+  KIP: `0x26938` `E0 1B 00 36` → `1F 20 03 D5`, skipping the NCA header-1 signature verdict.
+  Both are Atmosphère 1.11.2 builds with `tools/atmosphere-store-trust.patch`;
+  `tools/build-system-module.sh` builds them and `romfs/system/SOURCE.txt` records what ships.
+  Proven on hardware 2026-10-04: the package this build makes booted the console (emuMMC) and
+  JKSV, installed from the OpenPak eShop, ran.
+- system: the package is built from the official 1.11.2 `package3` as before, with Loader and
+  fusee swapped in after `ams_mitm`. The new Loader is 0x40 bytes larger and not the last KIP, so
+  the KIP region is repacked as Atmosphère's `build_package3.py` lays it out, with every offset,
+  size and hash updated; every input and every existing hash is checked before a byte changes.
+  `tools/test-system.py` requires the result to be byte for byte the package that booted
+  (sha256 `4e2ac49b…`) when the official package is available locally.
+- system: an existing `package3-openpak` from an earlier build (the `ams_mitm`-only package) is
+  recognised and replaced, so re-applying OpenPak after the update is all a console needs. Any
+  other file there is still kept and still stops setup ("OpenPak boot package changed").
+- system: after enable, a Loader KIP in `/atmosphere/kips` (Horizon OC's `hoc.kip`, for one) is
+  named in a warning: fusee loads it ahead of OpenPak's, so store titles will not launch while it
+  is there. Setup still succeeds and the file is not touched.
+- store installs: the v0.3.7 step that would copy an FS IPS into `/atmosphere/kip_patches` is
+  gone, with its empty payload, its "pending" note and the candidate under
+  `docs/install-trust/`. Atmosphère 1.11.2's fusee never reads `kip_patches`, and no release
+  ever wrote a file there, so nothing needs cleaning up. The firmware 22.5.0 gate stays.
+- docs: `docs/install-trust.md` rewritten to what ships and why. Not covered: 22.5.0's exFAT FS
+  (a different KIP, left unpatched), and a sysMMC boot, not yet tried on hardware.
+- ci: the release runner image is pinned to ubuntu-24.04, with checkout@v5 [86bb33b]
+
 ## v0.3.14 — 2026-09-26
 
 - system: OpenPak's own overlay is never recorded as the file that was on the card first. A

@@ -1,159 +1,151 @@
-# Store installs — console trust for OpenPak-store titles
+# Store installs — console trust for OpenPak store titles
 
-*Firmware 22.5.0 (HOS), Atmosphère 1.11.2. Nothing here has been tested on
-hardware; the FS patch below is a **candidate**, not a shipped patch.*
+*Firmware 22.5.0, Atmosphère 1.11.2, hekate → `pkg3=atmosphere/package3-openpak` (fusee).
+Shipped in v0.3.15. Proven on hardware 2026-10-04: the package this NRO builds
+(`package3-openpak-store`, sha256 `4e2ac49b…19530e2`) booted tobagin's console (emuMMC, through
+a hekate test entry), and a store title (JKSV) installed from the OpenPak eShop and ran.*
 
-## What a store title needs
+## What a store title is
 
-The OpenPak store serves only homebrew titles and their updates, all packaged
-**without a rights ID** — key-area (NCA key-area) crypto, no tickets. Because
-there is no ticket:
+The OpenPak eShop serves homebrew as self-built NSPs: program ids
+`0x01FE000000000000`–`0x01FEFFFFFFFFFFFF`, **no rights ID** (standard key-area crypto), so
+there is no ticket and ES is never involved. Inspected with hactool: the program NCA's
+fixed-key header signature (sig1) is all zeros, and so is the NPDM's ACID signature. The
+NCA/NPDM sig2 is hacBrewPack's own, consistent with the key it writes into the ACID.
 
-- **No ES / ticket-signature patch is involved.** Only add one if the
-  no-rights-ID path is ever observed to reach ES on hardware; it should not.
+`0x01FE…` lies inside the application range (`0x0100000000010000`–`0x01FFFFFFFFFFFFFF`), so ns,
+ncm and nim treat these as ordinary applications; their content hashes are self-consistent and
+pass. Two checks stop such a title, and OpenPak changes exactly those two.
 
-Two console checks otherwise stop such a title from installing and launching:
+## 1. Loader / ACID: a scoped Loader change
 
-1. **FS NCA fixed-key header signature.** FS verifies the RSA-2048-PSS
-   signature over each NCA header with the fixed header key. A repacked /
-   self-built NCA fails it. FS is a **stock KIP** that Atmosphère keeps, so this
-   is a **kip_patch**.
-2. **Loader NPDM ACID signature.** The program loader verifies the ACID
-   signature in the NPDM.
+Atmosphère's Loader **does** enforce the NPDM ACID signature on retail consoles from 10.0.0
+(`ValidateAcidSignature` in `stratosphere/loader/source/ldr_meta.cpp`).
+`IsEnabledProgramVerification()` is permanently true there: it can only be switched off when
+`spl::IsDevelopment()`, which is false on retail. A self-signed ACID is therefore rejected with
+`ResultInvalidAcidSignature`: without this change the title installs but does not launch.
+(An earlier version of this page said the opposite. It was wrong, and so was the matching
+comment in the NRO: community sigpatch sets ship no Loader patch because they boot
+Nintendo-signed content, whose ACID is valid.)
 
-## Loader / ACID: no patch needed on this console
+OpenPak's Loader accepts an invalid ACID signature **only** when the ACID's program id range lies
+within `0x01FE000000000000`–`0x01FEFFFFFFFFFFFF`:
 
-This console boots hekate with `pkg3=atmosphere/package3` (verified in
-`atmosphere-active/hekate_ipl.before-ssl-test.ini`), i.e. it chainloads
-Atmosphère's **fusee**. Atmosphère's `package3` ships its **own** `KIP1Loader`
-and **replaces** the stock `Loader` KIP (the stock `Loader.kip1` in the firmware
-is not what runs). Atmosphère's loader does not enforce the NPDM ACID signature
-— this is long-standing Atmosphère behaviour and the reason community "sigpatch"
-sets ship only `fs` and `es` patches and never a loader patch.
+```cpp
+const bool is_openpak_store_title = meta->acid->program_id_min.value >= 0x01FE000000000000ul &&
+                                    meta->acid->program_id_max.value <= 0x01FEFFFFFFFFFFFFul;
+R_UNLESS(is_signature_valid || is_openpak_store_title || !IsEnabledProgramVerification(), ldr::ResultInvalidAcidSignature());
+meta->check_verification_data = is_signature_valid;
+```
 
-**Therefore no loader/ACID patch is delivered.** (Worth a one-line confirmation
-on hardware: a no-rights-ID title that installs with only the FS patch and
-launches proves the loader is not enforcing ACID. If a future Atmosphère did
-enforce it, a loader patch — or Atmosphère's own ACID-key replacement — would be
-needed; that is out of scope here.)
+`check_verification_data` stays the real verdict (false for store titles), so no sig2 check is
+forced; every structural check is unchanged, and every other program is verified as before.
 
-## Delivery
+## 2. FS / NCA header signature: a compiled-in fusee patch
 
-| Piece | Path on SD | Applied by |
-|---|---|---|
-| FS NCA-header patch | `/atmosphere/kip_patches/openpak_fs_no_ncasig/<fs-hash>.ips` | fusee, at boot |
+FS verifies each NCA header's RSA-2048-PSS signature with the fixed header key. FS is the stock
+Nintendo KIP, which Atmosphère keeps, so the change is a patch fusee applies to it at boot.
 
-- Because this console boots hekate → `pkg3=atmosphere/package3`, **fusee**
-  loads the INI1 and applies `kip_patches`, so the FS kip_patch runs here.
-- A console that instead let **hekate load the KIPs itself** (hekate-native KIP
-  loading, not `pkg3=`) would need the patch declared in hekate's own KIP-patch
-  configuration; fusee's `kip_patches` are not consulted on that path. This
-  console does not boot that way, so only the fusee path is wired; the hekate
-  path is documented here for completeness.
-- The `.ips` filename must gate on the FS KIP so it can never touch another
-  firmware. **FS 22.5.0 KIP sha256:**
-  `536d938469fe73be3c76da0333b289c0ed29f10c2a8afdff8e466142c4277359`
-  (name `FS`, `KIP1`). The NRO's install step only ever writes files that ship
-  in its verified payload, and removal deletes exactly those names.
+| field | value |
+|---|---|
+| FS KIP (as fusee hashes it) | `536d938469fe73be3c76da0333b289c0ed29f10c2a8afdff8e466142c4277359` = fusee's `FsVersion_22_5_0` |
+| instruction | FS text `0x26838`: `tbz w0,#0` to the sig1-failure path, right after the header-1 RSA verify |
+| patch offset (0x100 KIP header + text address) | `0x26938` |
+| original → new | `E0 1B 00 36` → `1F 20 03 D5` (`nop`) |
 
-The NRO ships the payload in `romfs/patches/kip_patches/openpak_fs_no_ncasig/`.
-It is **empty of `.ips` today**, so the "Store installs" step shows **Pending**
-and installs nothing. Drop a hardware-verified IPS there (named by the FS hash
-Atmosphère matches) and rebuild to arm the step.
+The verify result is consumed by that one branch only; all NCA reads go through the same
+reader, so the one patch covers install and launch. Found from the unique anchor of the retail
+header-1 modulus (FS `.rodata` `0x1df784`, one ADRP+ADD at `0x267fc`); the offset convention
+matches Atmosphère's own nogc patches for 22.5.0.
 
-## Firmware gate and where the step lives
+**It is not an SD IPS.** Atmosphère 1.11.2's fusee reads no `/atmosphere/kip_patches`: the
+only KIP patches it applies are compiled in (`AddPatch`, as for nogc); the IPS patcher covers
+NSOs only. So the patch is compiled into OpenPak's fusee, gated on `FsVersion_22_5_0`:
 
-The store patch is **part of the OpenPak experience**, not a separate toggle.
-Selecting OpenPak installs it alongside the hosts, CA and News patches; selecting
-Nintendo removes exactly the files it wrote, in the same removal path.
+```cpp
+if (fs_version == FsVersion_22_5_0) {
+    constexpr const u8 OpenpakNcaSig1Nop[] = { 0x1F, 0x20, 0x03, 0xD5 };
+    AddPatch(fs_meta, 0x26938, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
+}
+```
 
-Because everything OpenPak installs is derived from one firmware, the whole
-install is **refused unless the console runs 22.5.0**: the NRO reads
-`setsysGetFirmwareVersion().display_version` and, on any mismatch, writes nothing
-and shows "OpenPak requires firmware 22.5.0 — this console runs X.Y.Z". Removal
-is allowed on **any** firmware, so a console updated after installing can always
-clean up, and a console left on OpenPak after an update is warned at launch.
+fusee identifies FS by the KIP's hash, so on any other FS — including 22.5.0's **exFAT** FS
+(`FsVersion_22_5_0_Exfat`, a different KIP) — nothing is patched and store titles do not mount.
+The other way, a whole pre-patched `FS.kip1` in `/atmosphere/kips`, is ruled out twice: it is
+Nintendo code, not distributable, and fusee cannot identify a modified FS by hash, which is
+boot-fatal ("Failed to identify FS!") with emuMMC.
 
-The FS patch itself carries a second, independent gate: its `.ips` is named by
-the FS KIP hash, so Atmosphère applies it only to a matching FS. A 22.5.0 console
-with an unexpected (modified) FS therefore never gets a half-applied FS patch —
-Atmosphère simply ignores the mismatched IPS. (The NRO cannot cheaply hash the
-running FS KIP from homebrew, so the authoritative FS gate is the hash-named IPS
-plus the firmware-version refusal above.)
+Both source changes are `tools/atmosphere-store-trust.patch`; `tools/build-system-module.sh`
+builds them (with the SSL `ams_mitm`) and `romfs/system/SOURCE.txt` records what ships.
 
-When the payload has **no verified `.ips`** (today), the OpenPak install still
-succeeds for everything else and the store piece is reported as pending —
-"FS patch pending hardware verification" — writing nothing for FS. Once an IPS is
-dropped into the payload, the same OpenPak selection copies it to
-`/atmosphere/kip_patches/openpak_fs_no_ncasig/` and the reboot applies it.
+## Delivery: one boot package
 
-## FS NCA-header-signature patch — candidate (NOT shipped)
+Everything above arrives through the NRO's **OpenPak** selection, like the SSL `ams_mitm`. On
+enable, `openpak_system_install` (source/system.c) reads the official `/atmosphere/package3`,
+refuses anything but the exact Atmosphère 1.11.2 release (sha256 `f162a419…`), and builds
+`/atmosphere/package3-openpak` from it:
 
-Build ids / identity:
+- `ams_mitm` swapped for `romfs/system/ams_mitm-1.11.2.kip`;
+- `Loader` swapped for `romfs/system/loader-1.11.2.kip` (KIP1, name `Loader`, program id
+  `0x0100000000000001`, the original's header fields and capabilities);
+- `fusee` swapped for `romfs/system/fusee-1.11.2.bin`.
 
-- FS is program `0100000000000000` in the INI1, delivered as `KIP1` `FS`.
-- FS KIP sha256 `536d9384…c4277359`; the reconstructed ELF is `m0/FS.elf`
-  (segments: text@0, ro@0x1db000, data@0x244000; KIP1 header 0x100). Ghidra
-  project `m0/ghidra_proj` (`FSm0`), fully analysed.
+Loader is not the last KIP and the new one is 0x40 bytes larger, so the KIP region is repacked
+the way `fusee/build_package3.py` lays it out: emummc, then the KIPs in table order, 16-byte
+aligned from `0x100000`, at most `0x400000`, `0xCC` between and after; each content-table entry
+gets its new offset and size, each KIP meta (meta 0 = emummc) its offset, size and SHA-256. fusee
+sits at `0x7C0000`, at most `0x20000`, zero padded, its size field updated. Every meta hash, the
+existing layout and every input are checked before a byte changes. fusee's two MTC overlays
+stay as they are: a build from these sources produces identical ones. `make test` builds the
+package from the official one and requires sha256 `4e2ac49b…`, byte for byte the package that
+booted (`tools/test-system.py`; the official package and that reference are local inputs from
+the workspace, skipped where absent).
 
-Anchor found by static analysis:
+`hekate_ipl.ini`'s standard `pkg3=`/`fss0=` entry is pointed at the new file; the official
+`package3` is never touched (`ams_mitm` keeps it open while HOS runs).
 
-- The NCA header processor is the function at FS vaddr **0x26570**
-  (`sub sp,#0x580` — a large frame holding a decrypted 0xC00 header). It
-  compares the header magic against `NCA3` (`0x3341434E`, built at 0x26754 and
-  0x26794: `mov w9,#0x434e ; movk w9,#0x3341,lsl#16 ; cmp w8,w9`) and calls the
-  version-magic helper at **0x16e3a0** (accepts `NCA0/1/2`, else aborts via the
-  `R_ABORT`-style logger at **0x54df0**).
-- The fixed-key **RSA-2048-PSS-SHA256 header signature** verification is within
-  or just above this processor (in `NcaReader` init / its caller). It has **no
-  string anchor** (release build, error strings stripped), so the exact
-  conditional branch to patch was **not isolated from raw disassembly**.
+**Upgrading.** Every console enabled before v0.3.15 has the `ams_mitm`-only package at
+`package3-openpak`. Enable recognises that file — it rebuilds it from the same official package
+— and replaces it. Any other file there is somebody else's: it is kept and setup stops with
+"OpenPak boot package changed; existing file preserved". Re-applying finds the file already
+right and does not rewrite it.
 
-Proposed method (standard FS sigpatch shape): in `NcaReader` init, force the
-branch that acts on the header-signature verify result to always take the
-success path (NOP the conditional branch to the signature-error handler, or
-substitute a success result), leaving structural checks intact — analogous to
-`news-*-no-dauth`, which forces a helper's result to success and lets the caller
-proceed.
+**Another Loader on the card.** fusee loads `/atmosphere/kips/*.kip` and `*.kip1` before the
+package and keeps the first KIP for each program id, so a Loader there (Horizon OC's `hoc.kip`
+is one) replaces OpenPak's and store titles stop launching. After a successful enable the NRO
+looks for one, the way fusee would, and names it in a warning; setup still succeeds and the file
+is never touched.
 
-**Why no candidate `.ips` bytes are given yet:** a kip patch to FS is
-boot-fatal if wrong, and this one cannot be pinned to exact original/new bytes
-from static disassembly alone. The remaining step is to decompile 0x26570 and
-its caller in the `FSm0` Ghidra GUI, read the header-signature verify + its
-result branch, capture the original bytes and the minimal success-forcing edit,
-then validate on hardware per the procedure below. Only then does an IPS get
-named by the FS hash and dropped into the payload. Producing invented bytes now
-would be worse than shipping nothing.
+## What was retired
 
-## Hardware test procedure (for the owner)
+v0.3.7–v0.3.14 carried a "Store installs" step that would copy an FS IPS into
+`/atmosphere/kip_patches/openpak_fs_no_ncasig/`. Its payload never held an `.ips` (it always
+reported *pending*), and this fusee would not have read one anyway. The step, its payload folder
+and the candidate marker are gone. No release ever wrote a file there, so there is nothing to
+clean up; anything in that folder is not OpenPak's and is left alone.
 
-Do this only after the candidate above is turned into real bytes.
+## Firmware gate
 
-1. **Back up first.** Copy the whole SD `/atmosphere/` directory, and at least
-   `/atmosphere/kip_patches/` and `/bootloader/`, to a PC. A bad FS kip patch
-   makes the console **fatal at boot** — recoverable only by editing the SD in a
-   PC card reader.
-2. **Place the patch.** Put the verified IPS at
-   `sd:/atmosphere/kip_patches/openpak_fs_no_ncasig/<fs-hash>.ips`, or select
-   **Store installs** in this NRO (once armed) and accept the reboot. The file
-   must be named by the FS KIP hash Atmosphère matches, so it is ignored on any
-   other firmware.
-3. **Reboot through the same boot entry** (hekate → `pkg3=atmosphere/package3`).
-4. **Success looks like:** the console boots normally to Home, and a
-   no-rights-ID OpenPak-store title **installs and launches**. Confirm the
-   loader is not enforcing ACID by the launch succeeding with only this patch.
-5. **Failure looks like:** an Atmosphère **fatal error** screen at boot (an
-   error report is written to `/atmosphere/fatal_errors/`), or the title fails
-   to install/launch with an NCA / signature error. Either means the patch bytes
-   or offset convention are wrong.
-6. **Recover:** power off; in a PC card reader, delete
-   `sd:/atmosphere/kip_patches/openpak_fs_no_ncasig/` (or the whole
-   `kip_patches` you added); restore the backup if needed; boot again. Removing
-   the file fully reverts — the patch is applied only at boot and changes nothing
-   on the NAND.
+Everything OpenPak installs is derived from one firmware, so the whole OpenPak selection is
+refused unless the console runs **22.5.0** (`setsysGetFirmwareVersion`), before a file is
+written. Selecting Nintendo works on any firmware. Inside the boot package the FS patch has its
+own gate, the FS hash above; the Loader change applies only to the `0x01FE…` range.
+
+## Recovery
+
+Selecting **Nintendo** points hekate back at the official `package3`; the inactive
+`package3-openpak` stays on the card and is reused if identical. If a console does not boot
+through OpenPak's entry, edit `bootloader/hekate_ipl.ini` in a PC card reader and change
+`pkg3=atmosphere/package3-openpak` back to `pkg3=atmosphere/package3` (OpenPak's backup of the
+original is `/switch/openpak/system/boot.original`). Nothing here changes the NAND.
+
+Not yet seen on hardware: a sysMMC boot through this package, and the upgrade from an
+`ams_mitm`-only `package3-openpak` performed by the NRO itself (the package was put in place
+through a hekate test entry).
 
 ## Provenance
 
-Derived only from the owner-local 22.5.0 binaries under
-`/home/tobagin/openpak-firmware-audit-22.5.0` (`m0/FS.elf`, `fs-extract/`,
-`atmosphere-active/`). No decompiled code is copied. Clean-room: facts only.
+The FS offsets come from owner-local 22.5.0 binaries (`openpak-firmware-audit-22.5.0`) and the
+Loader reasoning from the Atmosphère 1.11.2 source; workspace notes in
+`scratch/hbstore/trust/FINDINGS.md`. No Nintendo code is copied or shipped: the bundled files are
+Atmosphère (GPL) builds, and the FS change is four bytes fusee writes at boot.

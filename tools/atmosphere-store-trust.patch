@@ -1,0 +1,35 @@
+diff --git a/fusee/program/source/fusee_stratosphere.cpp b/fusee/program/source/fusee_stratosphere.cpp
+index 8f34237..191e269 100644
+--- a/fusee/program/source/fusee_stratosphere.cpp
++++ b/fusee/program/source/fusee_stratosphere.cpp
+@@ -926,6 +926,13 @@ namespace ams::nxboot {
+             }
+ 
+             /* TODO ams.tma2: add mount_host patches. */
++
++            /* OpenPak: skip the NCA header fixed-key (sig1) verdict so self-built store titles mount. */
++            /* FS 22.5.0 only: tbz w0,#0 after the header-1 RSA verify (0x26838) -> nop.               */
++            if (fs_version == FsVersion_22_5_0) {
++                constexpr const u8 OpenpakNcaSig1Nop[] = { 0x1F, 0x20, 0x03, 0xD5 };
++                AddPatch(fs_meta, 0x26938, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
++            }
+         }
+ 
+         /* Return the fs version we're using. */
+diff --git a/stratosphere/loader/source/ldr_meta.cpp b/stratosphere/loader/source/ldr_meta.cpp
+index d6b6d78..7fa6556 100644
+--- a/stratosphere/loader/source/ldr_meta.cpp
++++ b/stratosphere/loader/source/ldr_meta.cpp
+@@ -165,7 +165,11 @@ namespace ams::ldr {
+             const u8 *msg         = meta->acid->modulus;
+             const size_t msg_size = meta->acid->size;
+             const bool is_signature_valid = crypto::VerifyRsa2048PssSha256(sig, sig_size, mod, mod_size, exp, exp_size, msg, msg_size);
+-            R_UNLESS(is_signature_valid || !IsEnabledProgramVerification(), ldr::ResultInvalidAcidSignature());
++            /* OpenPak: store titles (0x01FE...) are self-signed; accept their ACID signature.  */
++            /* check_verification_data stays false for them, so no sig2 check is forced.       */
++            const bool is_openpak_store_title = meta->acid->program_id_min.value >= 0x01FE000000000000ul &&
++                                                meta->acid->program_id_max.value <= 0x01FEFFFFFFFFFFFFul;
++            R_UNLESS(is_signature_valid || is_openpak_store_title || !IsEnabledProgramVerification(), ldr::ResultInvalidAcidSignature());
+ 
+             meta->check_verification_data = is_signature_valid;
+             R_SUCCEED();

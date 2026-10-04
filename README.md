@@ -76,29 +76,34 @@ inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no 
 certificate can extend. The server sides that one as `ws://` instead, so no certificate is
 involved — see `servers/battlenet/docs/d2r-protocol.md`.
 
-## Store installs and the firmware gate (0.3.7)
+## Store installs and the firmware gate (0.3.15)
 
 OpenPak targets exactly one system firmware, **22.5.0**. Everything it installs —
-host rules, the browser/system CA, the News patches and the store-install patch —
+host rules, the browser/system CA, the News patches and the boot package —
 is derived from that firmware, so selecting OpenPak on any other version is
 refused before a single file is written, with a message naming the version the
 console actually runs. Selecting **Nintendo** removes cleanly on *any* firmware,
 so a console updated after installing can always clean up; a console left on
 OpenPak after an update is warned at launch and pointed at that fix.
 
-Selecting OpenPak also installs the console-trust patch that lets an OpenPak-store
-title install and launch. The store serves only homebrew and its updates, all
-packaged **without a rights ID** (key-area crypto, no tickets), so no ES/ticket
-patch is involved, and no loader/ACID patch either — Atmosphère replaces the
-stock loader with its own, which does not enforce the NPDM ACID signature. The
-only console patch needed is an **FS NCA-header-signature** kip patch.
+Selecting OpenPak also makes OpenPak eShop titles launch. The store serves homebrew
+as self-built NSPs with **no rights ID** (no ticket, so ES is not involved) and
+program ids `0x01FE…`. Two console checks stop those, and OpenPak's boot package
+`/atmosphere/package3-openpak` changes both:
 
-That FS patch is gated by the FS KIP hash so it can never apply to another
-firmware, and it ships **only once verified on hardware**. Until then the step is
-*pending*: it writes nothing for FS and says so. See
-[`docs/install-trust.md`](docs/install-trust.md) for the derivation, delivery
-(kip_patches via fusee, since this console boots hekate → `pkg3=`), the candidate
-analysis, and the exact hardware test and SD-reader recovery procedure.
+- **Loader**: an Atmosphère 1.11.2 Loader that accepts an invalid NPDM ACID
+  signature for program ids `0x01FE000000000000`–`0x01FEFFFFFFFFFFFF` only.
+- **FS**: an Atmosphère 1.11.2 fusee with one compiled-in patch to the stock FS
+  22.5.0 KIP (`0x26938`: `E0 1B 00 36` → `1F 20 03 D5`), which skips the NCA
+  header-signature verdict. It applies only to the FS fusee identifies by hash as
+  22.5.0 — not 22.5.0's exFAT FS.
+
+There is no SD patch file: this fusee reads no `/atmosphere/kip_patches`. A Loader
+KIP in `/atmosphere/kips` (Horizon OC's `hoc.kip`, for example) is loaded ahead of
+OpenPak's; enable names it in a warning and leaves it alone. Proven on hardware
+2026-10-04 (JKSV installed from the eShop and ran). See
+[`docs/install-trust.md`](docs/install-trust.md) for the derivation, the package
+layout, upgrading from the `ams_mitm`-only package, and recovery.
 
 ## Updating itself
 
@@ -248,8 +253,10 @@ with this system change; the revised installer needs a hardware round-trip.
 This build supports the official **Atmosphere 1.11.2** package at
 `/atmosphere/package3` with standard `pkg3` or `fss0` entries in
 `/bootloader/hekate_ipl.ini`. Enable verifies the original package's complete
-SHA-256, builds `/atmosphere/package3-openpak` with the replacement `ams_mitm`,
-and updates those entries automatically. The original package and autoboot
+SHA-256, builds `/atmosphere/package3-openpak` with the replacement `ams_mitm`
+(and, since 0.3.15, the store-trust Loader and fusee above), and updates those
+entries automatically. A `package3-openpak` an earlier build wrote is replaced; any
+other file there stops setup. The original package and autoboot
 selection remain untouched. No extra installation or manual boot selection is
 required. The active package can remain open while the NRO changes the boot
 configuration. Unknown configurations produce a setup error.
@@ -276,9 +283,13 @@ The game-invitation service `*.five.nintendo.net` is included in the managed hos
 list. Earlier builds omitted it, preventing the native invitation applet from
 reaching OpenPak in configurations that block Nintendo hosts.
 
-Build the bundled open-source component with `bash tools/build-system-module.sh`.
-Its source revision and local patch are listed in `romfs/system/SOURCE.txt`.
+Build the bundled open-source components (`ams_mitm`, Loader, fusee) with
+`TMPDIR=<workspace dir> flock /tmp/openpak-build.lock bash tools/build-system-module.sh`.
+Their source revision and local patches are listed in `romfs/system/SOURCE.txt`.
 Run `make test` for host-side checks, and use
 `python3 tools/test-system.py --package3 /path/to/official/package3` for the full
-install/reapply/rollback and interrupted-activation tests. That input is local and
-is not distributed in this repository.
+install/reapply/rollback, interrupted-activation and upgrade tests, and the check that the
+store-trust package is byte for byte the one proven on hardware (add
+`--store-package3 <package3-openpak-store>` to compare against that file too). Those inputs
+are local and not distributed in this repository; `make test` picks them up from the
+workspace's `scratch/` when present and skips those tests otherwise.

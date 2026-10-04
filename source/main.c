@@ -54,7 +54,7 @@ static const Color WARN_BG = {0x2c, 0x24, 0x14, 255};
 
 // The whole tool is one choice: which network this console talks to. Choosing
 // OpenPak installs everything OpenPak needs together — hosts, CA, News patches
-// and the store-install patch; choosing Nintendo removes all of it.
+// and the store-trust boot package; choosing Nintendo removes all of it.
 enum { IT_NINTENDO, IT_OPENPAK, IT_COUNT };
 static const char *const item_labels[IT_COUNT] = {"Nintendo", "OpenPak"};
 
@@ -138,6 +138,8 @@ static void draw_item(int x, int y, int w, int h, bool selected,
 
 // What the online check at launch had to say ("" = it went through).
 static char net_note[128];
+// Set after enable when a KIP in /atmosphere/kips takes the place of OpenPak's Loader.
+static char loader_note[160];
 
 static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
                    bool offering) {
@@ -180,6 +182,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
         gfx_rounded(margin, msg_y, card_w, 56, 12, RAISED);
         gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking || offering) ? WARN : ACCENT);
         txt_draw(margin + 24, msg_y + 16, PX_BODY, TXT_LEFT, INK, "%s", status);
+        if (loader_note[0]) txt_draw(margin, msg_y + 76, PX_LABEL, TXT_LEFT, WARN, "%s", loader_note);
     } else {
         txt_draw(margin, msg_y + 16, PX_LABEL, TXT_LEFT, MUTED,
                  "Changes apply at boot — dns_mitm reads the hosts files then.");
@@ -199,6 +202,8 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
                      "%d host rules · %s · %s", pol->count, openpak_source_name(pol->source), ceil_txt);
         if (net_note[0])
             txt_draw(margin, msg_y + 68, PX_LABEL, TXT_LEFT, MUTED, "%s", net_note);
+        if (loader_note[0])
+            txt_draw(margin, msg_y + 94, PX_LABEL, TXT_LEFT, WARN, "%s", loader_note);
     }
 
     // Footer
@@ -327,7 +332,6 @@ int main(int argc, char **argv) {
             // Selecting the network already in use re-applies it rather than refusing: that is
             // how a console picks up a new CA or new host rules after the tool is updated.
             bool again = (want_openpak == on);
-            char store_note[96] = "";
             bool applied = want_openpak ? openpak_system_install(err, sizeof(err))
                                         : openpak_system_remove(err, sizeof(err));
             if (applied) {
@@ -336,17 +340,12 @@ int main(int argc, char **argv) {
                     int patches = openpak_patches_install();
                     // The News module only fetches channels it follows.
                     openpak_news_subscribe();
-                    // The store-install patch rides along with OpenPak. It is best-effort:
-                    // a pending or firmware-mismatched FS patch is a one-line note, not a
-                    // failure of the whole setup.
-                    openpak_store_install(store_note, sizeof(store_note));
                     applied = bundles > 0 && patches > 0;
                     if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
                 } else {
                     openpak_ca_remove(err, sizeof(err));
                     openpak_patches_remove();
                     openpak_news_unsubscribe();
-                    openpak_store_remove();
                 }
             }
             if (applied) applied = want_openpak ? openpak_enable(ip, err, sizeof(err))
@@ -354,11 +353,16 @@ int main(int argc, char **argv) {
             if (applied) {
                 on = want_openpak;
                 confirm_reboot = true;
-                snprintf(status, sizeof(status), again ? "%s setup updated. Reboot to apply?%s%s"
-                                                       : "%s selected. Reboot to apply?%s%s",
-                         want_openpak ? "OpenPak" : "Nintendo",
-                         (want_openpak && store_note[0]) ? "  " : "",
-                         want_openpak ? store_note : "");
+                snprintf(status, sizeof(status), again ? "%s setup updated. Reboot to apply?"
+                                                       : "%s selected. Reboot to apply?",
+                         want_openpak ? "OpenPak" : "Nintendo");
+                // A warning, not a failure: everything else works, only store titles will not launch.
+                char kip[64];
+                if (want_openpak && openpak_loader_override(kip, sizeof(kip)))
+                    snprintf(loader_note, sizeof(loader_note),
+                             "Store titles will not launch: /atmosphere/kips/%s replaces OpenPak's Loader.", kip);
+                else
+                    loader_note[0] = '\0';
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
                 openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);
