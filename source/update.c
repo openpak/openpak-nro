@@ -86,8 +86,25 @@ void openpak_update_self(const char *argv0) {
 
 const char *openpak_update_tag(void) { return tag; }
 
+// OpenPak installed from its own eShop runs as application 01fe000000000000. Its updates then
+// come through the console's update path (a patch title, 01fe000000000800), like any store
+// title; rewriting the unpacked NRO from GitHub would only fork it from what the console
+// thinks is installed. Under hbmenu the program id is the Album's or a taken-over game's.
+bool openpak_is_store_title(void) {
+#ifdef OPENPAK_HOST_TEST
+    return false;
+#else
+    u64 id = 0;
+    return R_SUCCEEDED(svcGetInfo(&id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) && id == 0x01FE000000000000ULL;
+#endif
+}
+
 void openpak_update_check(char *note, int notelen) {
     tag[0] = asset[0] = '\0';
+    if (openpak_is_store_title()) {
+        if (note && notelen > 0) note[0] = '\0';
+        return;
+    }
     if (!self[0]) openpak_update_self(NULL);
     size_t len = 0;
     char err[256] = "";

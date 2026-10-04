@@ -30,6 +30,9 @@ bool openpak_update_is_nro(const char *path);
 
 // Where the running NRO came from (argv[0]); call once at launch.
 void openpak_update_self(const char *argv0);
+// True when running as the store title (application 01fe000000000000): updates come from the
+// eShop then, and the GitHub self-update stands down.
+bool openpak_is_store_title(void);
 // Asks for the newest release and remembers it. Called by netfetch.c with the socket and curl
 // already up; note gets one line for /switch/openpak/network.log.
 void openpak_update_check(char *note, int notelen);
