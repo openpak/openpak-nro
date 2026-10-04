@@ -1,7 +1,31 @@
-ams_mitm-1.11.2.kip is built from Atmosphere 1.11.2:
+These files are built from Atmosphere 1.11.2:
 https://github.com/Atmosphere-NX/Atmosphere/tree/5388824be146a89619e8d641acd64599cf1c5f62
-Local modification: allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId.
-The exact patch and build script are supplied in the openpak-nro source tree:
-tools/atmosphere-ssl.patch and tools/build-system-module.sh.
+
+ams_mitm-1.11.2.kip
+  Local modification: allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId.
+  Patch: tools/atmosphere-ssl.patch.
+
+loader-1.11.2.kip and fusee-1.11.2.bin (OpenPak store trust)
+  Local modifications, both in tools/atmosphere-store-trust.patch:
+  - Loader (stratosphere/loader/source/ldr_meta.cpp): accept an invalid NPDM ACID signature
+    only when the ACID's program id range lies within 0x01FE000000000000-0x01FEFFFFFFFFFFFF,
+    the range OpenPak's store titles use. Every other program is verified as before.
+  - fusee (fusee/program/source/fusee_stratosphere.cpp): one compiled-in patch to the stock
+    FS 22.5.0 KIP, applied only when fusee identifies FS 22.5.0: offset 0x26938,
+    E0 1B 00 36 (tbz w0,#0 after the NCA header-1 RSA verify) -> 1F 20 03 D5 (nop).
+  Built from Atmosphere 1.11.2 with tools/atmosphere-ssl.patch and
+  tools/atmosphere-store-trust.patch applied, in a tree whose git stamp read -06ed0f6-dirty
+  (OpenPak's Atmosphere clone: the same sources plus documentation commits), with devkitARM r68
+  and devkitA64 r30 (GCC 16.1). tools/build-system-module.sh uses that toolchain and pins that
+  stamp: its fusee.bin is identical to this one; its
+  loader.kip differs only in the 20-byte GNU build ID, which hashes the absolute build path
+  recorded in the debug information.
+  sha256 loader-1.11.2.kip 0039f1557b21a6278d240e2e3cdd5c936c6b672ad69ecb6bafe940b03534e4d5
+  sha256 fusee-1.11.2.bin  d2f1c3ecf09d0511b629e4e37cc30c4d410cd084ea29b0f0458e03f64b081cda
+  fusee.bin is used with the MTC overlays already in the official package3; a build from these
+  sources produces the same overlays, and the build script checks that.
+
+The patches and the build script are supplied in the openpak-nro source tree:
+tools/atmosphere-ssl.patch, tools/atmosphere-store-trust.patch and tools/build-system-module.sh.
 Atmosphere's license is included as LICENSE.Atmosphere.
-This asset contains open-source Atmosphere code, not Nintendo firmware.
+These assets contain open-source Atmosphere code, not Nintendo firmware.

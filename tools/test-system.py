@@ -1,16 +1,34 @@
 #!/usr/bin/env python3
-"""Test system setup. Optional --package3 enables a real-package install/rollback test."""
+"""Test system setup.
+
+--package3 <official Atmosphere 1.11.2 package3> enables the real-package build, install, upgrade
+and rollback tests; --store-package3 <package3-openpak-store> also compares the build byte for
+byte with the package that booted on hardware. Neither ships in this repository: when they are not
+given, the copies in the OpenPak workspace's scratch folder are used if present, else those tests
+are skipped and say so.
+"""
 import argparse
 import ctypes as c
+import hashlib
 from pathlib import Path
 import struct
 import subprocess
 import tempfile
 
-parser=argparse.ArgumentParser()
-parser.add_argument('--package3',type=Path)
-a=parser.parse_args()
 repo=Path(__file__).resolve().parents[1]
+scratch=repo.parents[1]/'scratch'
+def local(p):
+    return p if p.is_file() else None
+parser=argparse.ArgumentParser()
+parser.add_argument('--package3',type=Path,
+                    default=local(scratch/'home/openpak-firmware-audit-22.5.0/atmosphere-active/package3'))
+parser.add_argument('--store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store'))
+a=parser.parse_args()
+# What the builder makes from the official package (sha f162a419…): ams_mitm alone, as every build
+# before store trust wrote it, and ams_mitm + Loader + fusee, the package that booted on hardware
+# and launched a store title (2026-10-04).
+PREVIOUS_SHA='5567550fc47a48547f169615fbebc9a6cb702af45bab549b31e1bf678447c467'
+STORE_SHA='4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2'
 with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     tmp=Path(directory)
     lib=tmp/'system.so'
@@ -20,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     api=c.CDLL(str(lib));api.openpak_store_replace.restype=c.c_bool
     api.openpak_store_replace.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
     api.openpak_package_build.restype=c.c_bool
-    api.openpak_package_build.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t]
+    api.openpak_package_build.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t]
     api.openpak_boot_build.restype=c.c_bool
     api.openpak_boot_build.argtypes=[c.c_void_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
     api.openpak_system_install.restype=api.openpak_system_remove.restype=c.c_bool
@@ -44,7 +62,10 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     dup=bytearray(source);struct.pack_into('<I',dup,24,1);assert transform(bytes(dup)) is None
     bad=c.create_string_buffer(b'x'*0x800000)
     kip=(repo/'romfs/system/ams_mitm-1.11.2.kip').read_bytes()
-    assert not api.openpak_package_build(bad,0x800000,kip,len(kip))
+    loader=(repo/'romfs/system/loader-1.11.2.kip').read_bytes()
+    fusee=(repo/'romfs/system/fusee-1.11.2.bin').read_bytes()
+    assert not api.openpak_package_build(bad,0x800000,kip,len(kip),None,0,None,0)
+    assert not api.openpak_package_build(bad,0x800000,kip,len(kip),loader,len(loader),fusee,len(fusee))
     api.openpak_store_is_ours.restype=c.c_bool;api.openpak_store_is_ours.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t]
     assert not api.openpak_store_is_ours(source,len(source),ca,len(ca))          # stock: 1033 is the old root
     assert api.openpak_store_is_ours(result,len(result),ca,len(ca))              # our overlay read back
@@ -97,9 +118,49 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     overlay.write_bytes(source);assert not api.openpak_store_file_is_ours()     # the stock store
     overlay.write_bytes(b'somebody else');assert not api.openpak_store_file_is_ours()
     print('PASS: overlay ownership: ours in any layout or absent yields, a store we did not write is kept')
+    # A Loader in /atmosphere/kips is loaded by fusee ahead of OpenPak's: named, never touched.
+    api.openpak_loader_override.restype=c.c_bool;api.openpak_loader_override.argtypes=[c.c_char_p,c.c_int]
+    kroot=tmp/'kips';kroot_bytes=str(kroot).encode();c.c_char_p.in_dll(api,'openpak_root').value=kroot_bytes
+    name=c.create_string_buffer(64);kips=kroot/'atmosphere/kips'
+    assert not api.openpak_loader_override(name,64)                             # no kips folder
+    kips.mkdir(parents=True);assert not api.openpak_loader_override(name,64)    # an empty one
+    (kips/'hoc.txt').write_bytes(loader);(kips/'other.kip').write_bytes(kip)   # wrong name; not a Loader
+    (kips/'short.kip1').write_bytes(loader[:-1])                                # fusee rejects the size
+    assert not api.openpak_loader_override(name,64)
+    (kips/'hoc.kip').write_bytes(loader)
+    assert api.openpak_loader_override(name,64) and name.value==b'hoc.kip'
+    assert (kips/'hoc.kip').read_bytes()==loader
+    (kips/'hoc.kip').rename(kips/'hoc.kip1');assert api.openpak_loader_override(name,64) and name.value==b'hoc.kip1'
+    print('PASS: a Loader override in /atmosphere/kips is found the way fusee finds it, and left alone')
+    if not a.package3:
+        print('SKIP: real-package build, install and upgrade (no --package3, none in the workspace)')
     if a.package3:
-        import os
         original=a.package3.resolve().read_bytes();os.chdir(repo)
+        def build(with_store,l=loader,f=fusee):
+            b=c.create_string_buffer(original,len(original))
+            ok=api.openpak_package_build(b,len(original),kip,len(kip),l if with_store else None,len(l) if with_store else 0,
+                                         f if with_store else None,len(f) if with_store else 0)
+            return b.raw[:len(original)] if ok else None
+        previous,store=build(False),build(True)
+        assert hashlib.sha256(previous).hexdigest()==PREVIOUS_SHA
+        assert hashlib.sha256(store).hexdigest()==STORE_SHA
+        if a.store_package3:
+            assert store==a.store_package3.read_bytes(),'store package differs from the one that booted'
+        else:
+            print('SKIP: byte comparison with package3-openpak-store (no --store-package3, none in the workspace)')
+        # Strict inputs: the wrong component in either slot, or only half of store trust, builds nothing.
+        renamed=bytearray(loader);renamed[4:10]=b'Lodder'
+        other_id=bytearray(loader);other_id[0x10]=2
+        grown=bytes(loader)+b'\0'                                                # size no longer the header's
+        for l,f in [(bytes(renamed),fusee),(bytes(other_id),fusee),(grown,fusee),(kip,fusee),
+                    (loader,fusee+b'\0'*(0x20001-len(fusee))),(loader,b'\0'*len(fusee)),(loader,fusee[:0x80])]:
+            assert build(True,l,f) is None
+        b=c.create_string_buffer(original,len(original))
+        assert not api.openpak_package_build(b,len(original),kip,len(kip),loader,len(loader),None,0)
+        assert not api.openpak_package_build(b,len(original),kip,len(kip),None,0,fusee,len(fusee))
+        assert b.raw[:len(original)]==original
+        print('PASS: store package = %s…, previous build = %s…, bad Loader/fusee refused, base untouched'
+              %(STORE_SHA[:8],PREVIOUS_SHA[:8]))
         for existing in [None,b'existing user overlay']:
             root=tmp/('absent' if existing is None else 'existing');state=root/'switch/openpak/system'
             state.mkdir(parents=True);(state/'source.bdf').write_bytes(source)
@@ -113,7 +174,7 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             err=c.create_string_buffer(256)
             assert api.openpak_system_install(err,256),err.value
             assert boot.read_bytes()==boot_expected and package.read_bytes()==original
-            patched=alternate.read_bytes();assert patched!=original and len(patched)==len(original)
+            patched=alternate.read_bytes();assert patched==store
             alternate_stat=alternate.stat()
             assert api.openpak_system_install(err,256),err.value
             assert alternate.stat().st_mtime_ns==alternate_stat.st_mtime_ns
@@ -160,3 +221,42 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             assert alternate.stat().st_ino==alternate_stat.st_ino
             assert api.openpak_system_remove(err,256),err.value
         print('PASS: enable, reapply, interrupted activation, our own overlay replaced, conflict refusal, disable; active package untouched')
+        # Upgrade: every console enabled before store trust has the ams_mitm-only package at
+        # package3-openpak. That one file is replaced; any other is still preserved.
+        root=tmp/'upgrade';state=root/'switch/openpak/system';state.mkdir(parents=True)
+        (state/'source.bdf').write_bytes(source)
+        package=root/'atmosphere/package3';package.parent.mkdir();package.write_bytes(original)
+        alternate=root/'atmosphere/package3-openpak'
+        boot=root/'bootloader/hekate_ipl.ini';boot.parent.mkdir();boot.write_bytes(boot_original)
+        root_bytes=str(root).encode();c.c_char_p.in_dll(api,'openpak_root').value=root_bytes
+        err=c.create_string_buffer(256)
+        alternate.write_bytes(previous)                                   # disabled, older build's file
+        assert api.openpak_system_install(err,256),err.value
+        assert alternate.read_bytes()==store and boot.read_bytes()==boot_expected
+        alternate.write_bytes(previous)                                   # enabled by an older build
+        assert api.openpak_system_install(err,256),err.value
+        assert alternate.read_bytes()==store
+        stat=alternate.stat()
+        assert api.openpak_system_install(err,256),err.value             # re-apply: not rewritten
+        assert alternate.stat().st_ino==stat.st_ino and alternate.stat().st_mtime_ns==stat.st_mtime_ns
+        # Power lost mid-upgrade: the older package is still the .openpak-previous copy.
+        alternate.rename(str(alternate)+'.openpak-previous');Path(str(alternate)+'.openpak-previous').write_bytes(previous)
+        assert api.openpak_system_install(err,256),err.value
+        assert alternate.read_bytes()==store and not Path(str(alternate)+'.openpak-previous').exists()
+        # Anything else at package3-openpak is somebody's: kept, and setup stops.
+        for foreign in [previous[:0x200000]+b'\x00'+previous[0x200001:],store[:-1]+b'\x01',b'not a package']:
+            alternate.write_bytes(foreign)
+            assert not api.openpak_system_install(err,256)
+            assert err.value==b'OpenPak boot package changed; existing file preserved',err.value
+            assert alternate.read_bytes()==foreign and boot.read_bytes()==boot_expected
+        alternate.write_bytes(previous)
+        assert api.openpak_system_install(err,256),err.value
+        # Disable after the upgrade: the boot entry goes back, package3 untouched, the inactive
+        # store package kept and reused as it is on the next enable.
+        assert api.openpak_system_remove(err,256),err.value
+        assert boot.read_bytes()==boot_original and package.read_bytes()==original and alternate.read_bytes()==store
+        stat=alternate.stat()
+        assert api.openpak_system_install(err,256),err.value
+        assert alternate.stat().st_ino==stat.st_ino and boot.read_bytes()==boot_expected
+        assert api.openpak_system_remove(err,256),err.value
+        print('PASS: upgrade from the ams_mitm-only package (enabled, disabled, interrupted), foreign package kept, reapply, disable')

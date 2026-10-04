@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <errno.h>
 #ifdef OPENPAK_HOST_TEST
 #include <openssl/sha.h>
@@ -37,37 +38,83 @@ static bool fingerprint(const void *data, size_t size, const char *expected) {
     return strcmp(hex,expected)==0;
 }
 
-bool openpak_package_build(uint8_t *p, size_t size, const uint8_t *kip, size_t n) {
+// package3 layout (fusee/build_package3.py): a content table of up to 30 entries at 0x40 (offset,
+// size, name at +16); the KIPs back to back from 0x100000, 16-byte aligned with 0xCC between and
+// after them, emummc first, then the stratosphere KIPs in table order; meta i at 0x400 (program
+// id, offset from 0x100000, size, SHA-256) describes the i-th of them; fusee at 0x7C0000, zero
+// padded to 0x20000.
+#define KIP_START 0x100000
+#define KIP_END 0x400000
+#define FUSEE_AT 0x7C0000
+#define FUSEE_MAX 0x20000
+#define LOADER_ID "\x01\x00\x00\x00\x00\x00\x00\x01"   // 0x0100000000000001, little endian
+
+static uint64_t kip_size(const uint8_t *k) { return 0x100+(uint64_t)get32(k+0x28)+get32(k+0x38)+get32(k+0x48); }
+// The KIPs laid out as build_package3.py lays them out, into a 0x300000 region.
+static bool lay_out(uint8_t *region,uint32_t count,const uint8_t *const *kip,const uint32_t *len,uint32_t *at) {
+    memset(region,0xcc,KIP_END-KIP_START);
+    uint32_t o=KIP_START;
+    for (uint32_t i=0;i<count;++i) {
+        if (len[i]>KIP_END-o) return false;
+        at[i]=o; memcpy(region+o-KIP_START,kip[i],len[i]); o=(o+len[i]+15)&~15u;
+    }
+    return true;
+}
+// A replacement KIP keeps the header fields and capabilities of the one it replaces; only its
+// segments may change.
+static bool same_kip(const uint8_t *old,const uint8_t *k,size_t n) {
+    return n>=0x100 && n<=0x100000 && kip_size(k)==n && !memcmp(old,k,0x20) && !memcmp(old+0x80,k+0x80,0x80);
+}
+
+bool openpak_package_build(uint8_t *p, size_t size, const uint8_t *kip, size_t n,
+                           const uint8_t *loader, size_t ln, const uint8_t *fusee, size_t fn) {
     // Exact release match prevents altering an unsupported or independently modified boot image.
     if (size!=PACKAGE_SIZE || !fingerprint(p,size,
         "f162a419887374028103e097dc5679f97b3b22501fee667405a3bc965eeaa3f2")) return false;
     if (n<0x100 || n>0x100000 || memcmp(kip,"KIP1ams.mitm",12)) return false;
-    uint32_t count=get32(p+0x30), header=0, offset=0, old_size=0, meta=0;
-    if (count>30) return false;
-    for (uint32_t i=0;i<count;++i) {
-        uint32_t h=0x40+i*32;
-        if (!memcmp(p+h+16,"ams_mitm\0",9)) {
-            if (i!=count-1) return false;
-            header=h; offset=get32(p+h); old_size=get32(p+h+4);
-        }
+    if (!loader!=!fusee) return false;
+    if (loader && (ln<0x100 || memcmp(loader,"KIP1Loader\0\0\0\0\0\0",16) || memcmp(loader+0x10,LOADER_ID,8))) return false;
+    if (fusee && (fn<0x100 || fn>FUSEE_MAX)) return false;
+    uint32_t count=get32(p+0x30), kips=get32(p+0x10), fh=0, found=0;
+    if (count>30 || kips>15) return false;
+    uint32_t h[16]={0}, at[16], len[16]; const uint8_t *data[16];
+    for (uint32_t i=0,k=0;i<count;++i) {
+        uint32_t e=0x40+i*32, off=get32(p+e), sz=get32(p+e+4);
+        if (!memcmp(p+e+16,"fusee\0",6)) fh=e;
+        if (off<KIP_START || off>=KIP_END) continue;
+        if (k>kips || sz<0x100 || sz>KIP_END-off) return false;
+        h[k]=e; data[k]=p+off; len[k++]=sz;
     }
-    if (!header || offset<0x100000 || offset>0x400000 || old_size>0x400000-offset || n>0x400000-offset) return false;
-    if (memcmp(p+offset,kip,32) || memcmp(p+offset+0x80,kip+0x80,0x80)) return false;
-    uint32_t kips=get32(p+0x10);
-    if (kips>15) return false;
+    if (!h[0] || memcmp(p+h[0]+16,"emummc\0",7)) return false;
     for (uint32_t i=0;i<=kips;++i) {
-        uint32_t m=0x400+i*48, rel=get32(p+m+8), len=get32(p+m+12);
-        if (rel>0x300000 || len>0x300000-rel) return false;
-        uint8_t digest[32]; hash(digest,p+0x100000+rel,len);
+        uint32_t m=0x400+i*48, rel=get32(p+m+8);
+        if (!h[i] || rel!=get32(p+h[i])-KIP_START || get32(p+m+12)!=len[i] || memcmp(p+m,data[i]+0x10,8)) return false;
+        uint8_t digest[32]; hash(digest,data[i],len[i]);
         if (memcmp(digest,p+m+16,32)) return false;
-        if (rel+0x100000==offset) meta=m;
     }
-    if (!meta) return false;
-    for (size_t i=old_size;i<n;++i) if (p[offset+i]!=0xcc) return false;
-    memcpy(p+offset,kip,n);
-    if (n<old_size) memset(p+offset+n,0xcc,old_size-n);
-    put32(p+header+4,n); put32(p+meta+12,n); hash(p+meta+16,kip,n);
-    return true;
+    // fusee.bin opens with the loader stub's fixed entry code; the first 0x40 bytes identify it.
+    if (fusee && (!fh || get32(p+fh)!=FUSEE_AT || get32(p+fh+4)>FUSEE_MAX || memcmp(p+FUSEE_AT,fusee,0x40))) return false;
+    if (fusee) for (uint32_t i=get32(p+fh+4);i<FUSEE_MAX;++i) if (p[FUSEE_AT+i]) return false;
+    uint8_t *region=malloc(KIP_END-KIP_START); if (!region) return false;
+    // The package must already be laid out this way, so that repacking it moves nothing but
+    // what was replaced.
+    bool ok=lay_out(region,kips+1,data,len,at) && !memcmp(region,p+KIP_START,KIP_END-KIP_START);
+    for (uint32_t i=1;ok && i<=kips;++i) {
+        if (!memcmp(p+h[i]+16,"ams_mitm\0",9)) { ok=same_kip(data[i],kip,n); data[i]=kip; len[i]=n; found|=1; }
+        else if (loader && !memcmp(p+h[i]+16,"Loader\0",7)) { ok=same_kip(data[i],loader,ln); data[i]=loader; len[i]=ln; found|=2; }
+    }
+    // Loader is not the last KIP and the new one is larger, so everything after it moves.
+    ok=ok && found==(loader?3u:1u) && lay_out(region,kips+1,data,len,at);
+    if (ok) {
+        for (uint32_t i=0;i<=kips;++i) {
+            uint32_t m=0x400+i*48;
+            put32(p+h[i],at[i]); put32(p+h[i]+4,len[i]);
+            put32(p+m+8,at[i]-KIP_START); put32(p+m+12,len[i]); hash(p+m+16,region+at[i]-KIP_START,len[i]);
+        }
+        memcpy(p+KIP_START,region,KIP_END-KIP_START);
+        if (fusee) { memcpy(p+FUSEE_AT,fusee,fn); memset(p+FUSEE_AT+fn,0,FUSEE_MAX-fn); put32(p+fh+4,fn); }
+    }
+    free(region); return ok;
 }
 
 bool openpak_store_replace(const uint8_t *s, size_t size, const uint8_t *ca,
@@ -314,14 +361,20 @@ bool openpak_system_install(char *err,int errlen) {
         snprintf(err,errlen,"Could not recover interrupted system setup");return false;
     }
     bool ok=false;
-    uint8_t *base=NULL,*kip=NULL,*source=NULL,*ca=NULL,*store=NULL,*boot=NULL,*new_boot=NULL;
-    size_t n=0,kn=0,sn=0,cn=0,outn=0,bn=0,new_bn=0;
+    uint8_t *base=NULL,*kip=NULL,*loader=NULL,*fusee=NULL,*previous=NULL,*source=NULL,*ca=NULL,*store=NULL,*boot=NULL,*new_boot=NULL;
+    size_t n=0,kn=0,ln=0,fn=0,sn=0,cn=0,outn=0,bn=0,new_bn=0;
     const char *failure="Could not prepare system support";
     base=read_file(PACKAGE,&n,false);
     kip=read_file(ASSET "system/ams_mitm-1.11.2.kip",&kn,true);
-    if(!base||!kip)goto done;
+    loader=read_file(ASSET "system/loader-1.11.2.kip",&ln,true);
+    fusee=read_file(ASSET "system/fusee-1.11.2.bin",&fn,true);
+    if(!base||!kip||!loader||!fusee||!(previous=malloc(n?n:1)))goto done;
+    memcpy(previous,base,n);
+    // The package this one replaces: ams_mitm alone, what every build before store trust wrote
+    // to /atmosphere/package3-openpak. Built from the same official package to recognise it.
     failure="System support requires unmodified Atmosphere 1.11.2";
-    if(!openpak_package_build(base,n,kip,kn))goto done;
+    if(!openpak_package_build(base,n,kip,kn,loader,ln,fusee,fn) ||
+       !openpak_package_build(previous,n,kip,kn,NULL,0,NULL,0))goto done;
     failure="Boot configuration changed; existing file preserved";
     if(!managed_or_original(BOOT,STATE "/boot.managed",STATE "/boot.original",STATE "/boot.absent"))goto done;
     boot=read_file(exists(STATE "/boot.original")?STATE "/boot.original":BOOT,&bn,false);
@@ -331,7 +384,7 @@ bool openpak_system_install(char *err,int errlen) {
     if(!managed_or_original(STORE,STATE "/certificate.managed",STATE "/certificate.original",STATE "/certificate.absent")
        && !openpak_store_file_is_ours())goto done;
     failure="OpenPak boot package changed; existing file preserved";
-    if(exists(OPENPAK_PACKAGE) && !same_file(OPENPAK_PACKAGE,base,n))goto done;
+    if(exists(OPENPAK_PACKAGE) && !same_file(OPENPAK_PACKAGE,base,n) && !same_file(OPENPAK_PACKAGE,previous,n))goto done;
     failure="Could not read the system certificates";
     source=system_store(&sn);ca=read_file(ASSET "ca.der",&cn,true);
     if(!source||!ca)goto done;
@@ -361,9 +414,31 @@ bool openpak_system_install(char *err,int errlen) {
     }
     ok=true;
 done:
-    free(base);free(kip);free(source);free(ca);free(store);free(boot);free(new_boot);
+    free(base);free(kip);free(loader);free(fusee);free(previous);free(source);free(ca);free(store);free(boot);free(new_boot);
     if(!ok)snprintf(err,errlen,"%s",failure);
     return ok;
+}
+
+// fusee loads /atmosphere/kips before package3 and keeps the first KIP of each program id, so a
+// Loader there (Horizon OC's hoc.kip is one) replaces the one OpenPak puts in its package, and
+// store titles stop launching. Same test as fusee: a .kip or .kip1 name, KIP1, and a file size
+// that matches the header. The file is only named, never touched.
+bool openpak_loader_override(char *name,int len) {
+    char dir[512];path(dir,"/atmosphere/kips");
+    DIR *d=opendir(dir);if(!d)return false;
+    bool found=false;
+    for(struct dirent *e;!found && (e=readdir(d));) {
+        size_t nl=strlen(e->d_name);
+        if(!(nl>=4 && !strcmp(e->d_name+nl-4,".kip")) && !(nl>=5 && !strcmp(e->d_name+nl-5,".kip1")))continue;
+        char full[800];snprintf(full,sizeof(full),"%s/%s",dir,e->d_name);
+        FILE *f=fopen(full,"rb");if(!f)continue;
+        uint8_t k[0x100];struct stat st;
+        found=fread(k,1,sizeof(k),f)==sizeof(k) && !stat(full,&st) && S_ISREG(st.st_mode) && !memcmp(k,"KIP1",4) &&
+              !memcmp(k+0x10,LOADER_ID,8) && (uint64_t)st.st_size==kip_size(k);
+        fclose(f);
+        if(found)snprintf(name,len,"%s",e->d_name);
+    }
+    closedir(d);return found;
 }
 
 static bool managed_or_original(const char *p,const char *managed,const char *original,const char *absent) {
