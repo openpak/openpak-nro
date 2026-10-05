@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test system setup.
 
---package3 <official Atmosphere 1.11.2 package3> enables the real-package build, install, upgrade
+--package3 <official Atmosphere 1.12.0 package3> enables the real-package build, install, upgrade
 and rollback tests; --store-package3 <package3-openpak-store> also compares the build byte for
 byte with the package that booted on hardware. Neither ships in this repository: when they are not
 given, the copies in the OpenPak workspace's scratch folder are used if present, else those tests
@@ -21,14 +21,16 @@ def local(p):
     return p if p.is_file() else None
 parser=argparse.ArgumentParser()
 parser.add_argument('--package3',type=Path,
-                    default=local(scratch/'home/openpak-firmware-audit-22.5.0/atmosphere-active/package3'))
-parser.add_argument('--store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store'))
+                    default=local(scratch/'ams-1.12.0/sd/atmosphere/package3'))
+parser.add_argument('--store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store-1.12.0'))
+# The 1.11.2 package OpenPak 0.3.15-0.3.17 wrote (it booted on hardware): an upgrade replaces it.
+parser.add_argument('--old-store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store'))
 a=parser.parse_args()
-# What the builder makes from the official package (sha f162a419…): ams_mitm alone, as every build
-# before store trust wrote it, and ams_mitm + Loader + fusee, the package that booted on hardware
-# and launched a store title (2026-10-04).
-PREVIOUS_SHA='5567550fc47a48547f169615fbebc9a6cb702af45bab549b31e1bf678447c467'
-STORE_SHA='4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2'
+# What the builder makes from the official 1.12.0 package (sha 3cc9d6ca…): ams_mitm alone, as every
+# build before store trust wrote it, and ams_mitm + Loader + fusee. The 1.11.2 store package of the
+# same build booted on hardware and launched a store title (2026-10-04); this one has not booted yet.
+PREVIOUS_SHA='12f5eb5225d42ba1f08b285c4b07956c66d32e57b871874b6e5b222c2934b41a'
+STORE_SHA='eff03265fe175feb424c0d7e42726b13f5ef8eb93824e91ce1556f69175815ca'
 with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     tmp=Path(directory)
     lib=tmp/'system.so'
@@ -61,9 +63,9 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         assert transform(invalid) is None
     dup=bytearray(source);struct.pack_into('<I',dup,24,1);assert transform(bytes(dup)) is None
     bad=c.create_string_buffer(b'x'*0x800000)
-    kip=(repo/'romfs/system/ams_mitm-1.11.2.kip').read_bytes()
-    loader=(repo/'romfs/system/loader-1.11.2.kip').read_bytes()
-    fusee=(repo/'romfs/system/fusee-1.11.2.bin').read_bytes()
+    kip=(repo/'romfs/system/ams_mitm-1.12.0.kip').read_bytes()
+    loader=(repo/'romfs/system/loader-1.12.0.kip').read_bytes()
+    fusee=(repo/'romfs/system/fusee-1.12.0.bin').read_bytes()
     assert not api.openpak_package_build(bad,0x800000,kip,len(kip),None,0,None,0)
     assert not api.openpak_package_build(bad,0x800000,kip,len(kip),loader,len(loader),fusee,len(fusee))
     api.openpak_store_is_ours.restype=c.c_bool;api.openpak_store_is_ours.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t]
@@ -343,6 +345,15 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             assert not api.openpak_system_install(err,256)
             assert err.value==b'OpenPak boot package changed; existing file preserved',err.value
             assert alternate.read_bytes()==foreign and boot.read_bytes()==boot_expected
+        # The 1.11.2 packages earlier releases wrote are OpenPak's too: replaced, not preserved.
+        if a.old_store_package3:
+            old=a.old_store_package3.read_bytes()
+            assert hashlib.sha256(old).hexdigest()=='4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2'
+            alternate.write_bytes(old)
+            assert api.openpak_system_install(err,256),err.value
+            assert alternate.read_bytes()==store
+        else:
+            print('SKIP: upgrade from the 1.11.2 store package (no --old-store-package3, none in the workspace)')
         alternate.write_bytes(previous)
         assert api.openpak_system_install(err,256),err.value
         # Disable after the upgrade: the boot entry goes back, package3 untouched, the inactive

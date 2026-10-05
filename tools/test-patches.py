@@ -54,11 +54,11 @@ if os.path.exists(dauth_ips):
     check(len(recs) == 1 and recs[0][0] == 0xfc8a4 and len(recs[0][1]) == 8,
           f"news_no_dauth record unexpected: {recs!r}")
 
-# 3. The store-trust FS change is compiled into OpenPak's fusee (romfs/system/fusee-1.11.2.bin,
-#    docs/install-trust.md). Atmosphere 1.11.2's fusee reads no /atmosphere/kip_patches, so no
+# 3. The store-trust FS change is compiled into OpenPak's fusee (romfs/system/fusee-1.12.0.bin,
+#    docs/install-trust.md). Atmosphere's fusee (1.11.2, 1.12.0) reads no /atmosphere/kip_patches, so no
 #    kip_patches payload may ship: it would look installed and do nothing.
 check(not os.path.exists(os.path.join(ROOT, "romfs/patches/kip_patches")),
-      "romfs/patches/kip_patches must not ship (fusee 1.11.2 never reads it)")
+      "romfs/patches/kip_patches must not ship (fusee never reads it)")
 
 if fails:
     print("patch/payload checks FAILED:")

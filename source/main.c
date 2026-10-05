@@ -264,7 +264,7 @@ int main(int argc, char **argv) {
     // The release check ran inside the refresh above; the offer waits behind the report question.
     bool offer_update = openpak_update_tag()[0] != '\0', update_asked = false;
     int sel = on ? IT_OPENPAK : IT_NINTENDO;
-    // A console that was on OpenPak and has since been updated off 22.5.0 is in an
+    // A console that was on OpenPak and has since been updated to a firmware it does not know is in an
     // unsupported state: warn at launch and point at the fix (select Nintendo, which
     // removes cleanly on any firmware).
     {
@@ -274,6 +274,10 @@ int main(int argc, char **argv) {
                      "Warning: OpenPak is on but this console runs %s, not " OPENPAK_FIRMWARE
                      ". Select Nintendo to remove.", fw);
     }
+    // An OpenPak boot package from Atmosphere 1.11.2 cannot boot firmware 23: rebuild it first.
+    if (on && !status[0] && openpak_package_outdated())
+        snprintf(status, sizeof(status), "%s", "OpenPak's boot package is from Atmosphere 1.11.2: install "
+                 "Atmosphere 1.12.0 and select OpenPak again before updating the firmware.");
     // Reports saved by an earlier run (a crash, a failed setup) are offered now.
     bool asking = openpak_report_offer(status, sizeof(status), "OpenPak saved a problem report last time.");
     if (!status[0] && redirects_changed(ip)) snprintf(status, sizeof(status), "%s", REDIRECTS_CHANGED);

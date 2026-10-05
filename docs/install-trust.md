@@ -1,6 +1,7 @@
 # Store installs — console trust for OpenPak store titles
 
-*Firmware 22.5.0, Atmosphère 1.11.2, hekate → `pkg3=atmosphere/package3-openpak` (fusee).
+*Firmware 22.5.0 and 23.0.x, Atmosphère 1.12.0 (1.11.2 until v0.3.17), hekate →
+`pkg3=atmosphere/package3-openpak` (fusee).
 Shipped in v0.3.15. Proven on hardware 2026-10-04: the package this NRO builds
 (`package3-openpak-store`, sha256 `4e2ac49b…19530e2`) booted tobagin's console (emuMMC, through
 a hekate test entry), and a store title (JKSV) installed from the OpenPak eShop and ran.*
@@ -58,19 +59,23 @@ reader, so the one patch covers install and launch. Found from the unique anchor
 header-1 modulus (FS `.rodata` `0x1df784`, one ADRP+ADD at `0x267fc`); the offset convention
 matches Atmosphère's own nogc patches for 22.5.0.
 
-**It is not an SD IPS.** Atmosphère 1.11.2's fusee reads no `/atmosphere/kip_patches`: the
+**It is not an SD IPS.** Atmosphère's fusee (1.11.2 and 1.12.0) reads no `/atmosphere/kip_patches`: the
 only KIP patches it applies are compiled in (`AddPatch`, as for nogc); the IPS patcher covers
-NSOs only. So the patch is compiled into OpenPak's fusee, gated on `FsVersion_22_5_0`:
+NSOs only. So the patch is compiled into OpenPak's fusee, one offset per FS it identifies:
 
-```cpp
-if (fs_version == FsVersion_22_5_0) {
-    constexpr const u8 OpenpakNcaSig1Nop[] = { 0x1F, 0x20, 0x03, 0xD5 };
-    AddPatch(fs_meta, 0x26938, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
-}
-```
+| fusee `FsVersion` | text address | `AddPatch` offset | original → new |
+|---|---|---|---|
+| `22_5_0`, `22_5_0_Exfat` | `0x26838` | `0x26938` | `E0 1B 00 36` → `1F 20 03 D5` |
+| `23_0_0` (`34383ee7…`) | `0x278A8` | `0x279A8` | `00 24 00 36` → `1F 20 03 D5` |
+| `23_0_0_Exfat` (`fdaf1632…`) | `0x278B8` | `0x279B8` | `00 24 00 36` → `1F 20 03 D5` |
 
-fusee identifies FS by the KIP's hash, so on any other FS — including 22.5.0's **exFAT** FS
-(`FsVersion_22_5_0_Exfat`, a different KIP) — nothing is patched and store titles do not mount.
+The 22.5.0 address was derived from the decrypted KIP as above (exFAT's is the same per the public
+FS patch database). The 23.0.0 addresses are the same branch per the public FS patch database
+(`borntohonk/Switch-Ghidra-Guides`, `fs_kip_patches.txt`), whose FS hashes are the ones
+Atmosphère 1.12.0 identifies; firmware 23 needs `master_key_16`, which the workspace does not have
+yet, so they are not yet checked against the decrypted KIP, nor on hardware. 23.0.1 ships the
+same FS as 23.0.0. fusee identifies FS by the KIP's hash, so on any other FS nothing is patched
+and store titles do not mount.
 The other way, a whole pre-patched `FS.kip1` in `/atmosphere/kips`, is ruled out twice: it is
 Nintendo code, not distributable, and fusee cannot identify a modified FS by hash, which is
 boot-fatal ("Failed to identify FS!") with emuMMC.
@@ -82,13 +87,14 @@ builds them (with the SSL `ams_mitm`) and `romfs/system/SOURCE.txt` records what
 
 Everything above arrives through the NRO's **OpenPak** selection, like the SSL `ams_mitm`. On
 enable, `openpak_system_install` (source/system.c) reads the official `/atmosphere/package3`,
-refuses anything but the exact Atmosphère 1.11.2 release (sha256 `f162a419…`), and builds
+refuses anything but the exact Atmosphère 1.12.0 release (sha256 `3cc9d6ca…`; 1.11.2's
+`f162a419…` until v0.3.17), and builds
 `/atmosphere/package3-openpak` from it:
 
-- `ams_mitm` swapped for `romfs/system/ams_mitm-1.11.2.kip`;
-- `Loader` swapped for `romfs/system/loader-1.11.2.kip` (KIP1, name `Loader`, program id
+- `ams_mitm` swapped for `romfs/system/ams_mitm-1.12.0.kip`;
+- `Loader` swapped for `romfs/system/loader-1.12.0.kip` (KIP1, name `Loader`, program id
   `0x0100000000000001`, the original's header fields and capabilities);
-- `fusee` swapped for `romfs/system/fusee-1.11.2.bin`.
+- `fusee` swapped for `romfs/system/fusee-1.12.0.bin`.
 
 Loader is not the last KIP and the new one is 0x40 bytes larger, so the KIP region is repacked
 the way `fusee/build_package3.py` lays it out: emummc, then the KIPs in table order, 16-byte
@@ -126,8 +132,9 @@ clean up; anything in that folder is not OpenPak's and is left alone.
 
 ## Firmware gate
 
-Everything OpenPak installs is derived from one firmware, so the whole OpenPak selection is
-refused unless the console runs **22.5.0** (`setsysGetFirmwareVersion`), before a file is
+Everything OpenPak installs is derived from the firmwares it knows, so the whole OpenPak
+selection is refused unless the console runs **22.5.0, 23.0.0 or 23.0.1**
+(`setsysGetFirmwareVersion`), before a file is
 written. Selecting Nintendo works on any firmware. Inside the boot package the FS patch has its
 own gate, the FS hash above; the Loader change applies only to the `0x01FE…` range.
 
@@ -145,7 +152,8 @@ through a hekate test entry).
 
 ## Provenance
 
-The FS offsets come from owner-local 22.5.0 binaries (`openpak-firmware-audit-22.5.0`) and the
-Loader reasoning from the Atmosphère 1.11.2 source; workspace notes in
+The 22.5.0 FS offset comes from owner-local 22.5.0 binaries (`openpak-firmware-audit-22.5.0`),
+the 23.0.0 ones from the public FS patch database (above), and the Loader reasoning from the
+Atmosphère source (the ACID check reads the same in 1.11.2 and 1.12.0); workspace notes in
 `scratch/hbstore/trust/FINDINGS.md`. No Nintendo code is copied or shipped: the bundled files are
 Atmosphère (GPL) builds, and the FS change is four bytes fusee writes at boot.
