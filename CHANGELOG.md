@@ -3,6 +3,20 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## Unreleased — firmware 23.0.0 / 23.0.1 and Atmosphère 1.12.0
+
+- system: the boot package is built from Atmosphère **1.12.0** (sha256 `3cc9d6ca…`), which
+  firmware 23 needs; `ams_mitm`, Loader and fusee are rebuilt from 1.12.0 with the same two
+  patches. Enable now asks for an unmodified 1.12.0 `package3`. A `package3-openpak` that 0.3.1–
+  0.3.17 wrote from 1.11.2 is recognised as OpenPak's and replaced; at launch a console still on
+  one is told to install Atmosphère 1.12.0 and select OpenPak again before updating the firmware.
+- system: the store-trust FS patch covers FS 22.5.0 exFAT and FS 23.0.0 (FAT32 `0x279A8`, exFAT
+  `0x279B8`). The 23.0.0 offsets come from the public FS patch database and are not yet checked
+  against the decrypted KIP or on hardware.
+- gate: OpenPak can be selected on **22.5.0, 23.0.0 and 23.0.1**.
+- patches: the system CA patch for 23.0.0's ssl (`A60F1784…`). The browser CA patch and the
+  three News patches have no 23.x build yet, so on 23.x they do not apply.
+
 ## v0.3.17 — 2026-10-04 (updates through the eShop)
 
 - update: installed from OpenPak's own eShop, OpenPak runs as application `01fe000000000000`

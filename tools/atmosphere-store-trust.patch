@@ -1,23 +1,39 @@
 diff --git a/fusee/program/source/fusee_stratosphere.cpp b/fusee/program/source/fusee_stratosphere.cpp
-index 8f34237..191e269 100644
+index 884d691..8257b3c 100644
 --- a/fusee/program/source/fusee_stratosphere.cpp
 +++ b/fusee/program/source/fusee_stratosphere.cpp
-@@ -926,6 +926,13 @@ namespace ams::nxboot {
+@@ -942,6 +942,29 @@ namespace ams::nxboot {
              }
  
              /* TODO ams.tma2: add mount_host patches. */
 +
-+            /* OpenPak: skip the NCA header fixed-key (sig1) verdict so self-built store titles mount. */
-+            /* FS 22.5.0 only: tbz w0,#0 after the header-1 RSA verify (0x26838) -> nop.               */
-+            if (fs_version == FsVersion_22_5_0) {
++            /* OpenPak: skip the NCA header fixed-key (sig1) verdict so self-built store titles mount:  */
++            /* the tbz w0,#0 after the header-1 RSA verify -> nop. Offset = 0x100 KIP header + text vaddr. */
++            /* 22.5.0: vaddr 0x26838, derived from the decrypted KIP. 23.0.0: vaddr 0x278A8 / 0x278B8,    */
++            /* same branch per the public FS patch database (same FS hashes as above), not yet checked    */
++            /* against the decrypted KIP. Any other FS is left alone.                                     */
++            {
 +                constexpr const u8 OpenpakNcaSig1Nop[] = { 0x1F, 0x20, 0x03, 0xD5 };
-+                AddPatch(fs_meta, 0x26938, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
++                switch (fs_version) {
++                    case FsVersion_22_5_0:
++                    case FsVersion_22_5_0_Exfat:
++                        AddPatch(fs_meta, 0x26938, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
++                        break;
++                    case FsVersion_23_0_0:
++                        AddPatch(fs_meta, 0x279A8, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
++                        break;
++                    case FsVersion_23_0_0_Exfat:
++                        AddPatch(fs_meta, 0x279B8, OpenpakNcaSig1Nop, sizeof(OpenpakNcaSig1Nop));
++                        break;
++                    default:
++                        break;
++                }
 +            }
          }
  
          /* Return the fs version we're using. */
 diff --git a/stratosphere/loader/source/ldr_meta.cpp b/stratosphere/loader/source/ldr_meta.cpp
-index d6b6d78..7fa6556 100644
+index 8747519..28733ff 100644
 --- a/stratosphere/loader/source/ldr_meta.cpp
 +++ b/stratosphere/loader/source/ldr_meta.cpp
 @@ -165,7 +165,11 @@ namespace ams::ldr {

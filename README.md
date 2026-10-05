@@ -76,11 +76,11 @@ inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no 
 certificate can extend. The server sides that one as `ws://` instead, so no certificate is
 involved — see `servers/battlenet/docs/d2r-protocol.md`.
 
-## Store installs and the firmware gate (0.3.15)
+## Store installs and the firmware gate (0.3.15, 23.x in 0.3.18)
 
-OpenPak targets exactly one system firmware, **22.5.0**. Everything it installs —
+OpenPak targets system firmware **22.5.0, 23.0.0 and 23.0.1**. Everything it installs —
 host rules, the browser/system CA, the News patches and the boot package —
-is derived from that firmware, so selecting OpenPak on any other version is
+is derived from those firmwares, so selecting OpenPak on any other version is
 refused before a single file is written, with a message naming the version the
 console actually runs. Selecting **Nintendo** removes cleanly on *any* firmware,
 so a console updated after installing can always clean up; a console left on
@@ -91,12 +91,16 @@ as self-built NSPs with **no rights ID** (no ticket, so ES is not involved) and
 program ids `0x01FE…`. Two console checks stop those, and OpenPak's boot package
 `/atmosphere/package3-openpak` changes both:
 
-- **Loader**: an Atmosphère 1.11.2 Loader that accepts an invalid NPDM ACID
+- **Loader**: an Atmosphère 1.12.0 Loader that accepts an invalid NPDM ACID
   signature for program ids `0x01FE000000000000`–`0x01FEFFFFFFFFFFFF` only.
-- **FS**: an Atmosphère 1.11.2 fusee with one compiled-in patch to the stock FS
-  22.5.0 KIP (`0x26938`: `E0 1B 00 36` → `1F 20 03 D5`), which skips the NCA
-  header-signature verdict. It applies only to the FS fusee identifies by hash as
-  22.5.0 — not 22.5.0's exFAT FS.
+- **FS**: an Atmosphère 1.12.0 fusee with one compiled-in `nop` over the branch that
+  acts on the NCA header-signature verdict, in the stock FS KIPs fusee identifies by
+  hash as 22.5.0 (`0x26938`, FAT32 and exFAT) and 23.0.0 (`0x279A8`, exFAT `0x279B8`).
+  Any other FS is left alone. The 23.0.0 offsets are not yet checked against the
+  decrypted KIP or on hardware.
+
+The News patches and the browser CA patch are keyed by module build id, so on 23.x they
+wait for 23.x builds; the system CA patch has its 23.0.0 row.
 
 There is no SD patch file: this fusee reads no `/atmosphere/kip_patches`. A Loader
 KIP in `/atmosphere/kips` (Horizon OC's `hoc.kip`, for example) is loaded ahead of
@@ -277,13 +281,14 @@ Select **OpenPak**, accept the reboot, and launch the game normally. Selecting
 Stardew's executable is unchanged. Native Stardew online was confirmed working
 with this system change; the revised installer needs a hardware round-trip.
 
-This build supports the official **Atmosphere 1.11.2** package at
+This build supports the official **Atmosphere 1.12.0** package at
 `/atmosphere/package3` with standard `pkg3` or `fss0` entries in
 `/bootloader/hekate_ipl.ini`. Enable verifies the original package's complete
 SHA-256, builds `/atmosphere/package3-openpak` with the replacement `ams_mitm`
 (and, since 0.3.15, the store-trust Loader and fusee above), and updates those
-entries automatically. A `package3-openpak` an earlier build wrote is replaced; any
-other file there stops setup. The original package and autoboot
+entries automatically. A `package3-openpak` an earlier build wrote (including the
+1.11.2 ones from 0.3.1–0.3.17) is replaced; any other file there stops setup. Update the SD
+card to Atmosphère 1.12.0 first, then select OpenPak again, then update the firmware. The original package and autoboot
 selection remain untouched. No extra installation or manual boot selection is
 required. The active package can remain open while the NRO changes the boot
 configuration. Unknown configurations produce a setup error.

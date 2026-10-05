@@ -7,7 +7,10 @@
 #endif
 
 bool openpak_firmware_is_supported(const char *display_version) {
-    return display_version && strcmp(display_version, OPENPAK_FIRMWARE) == 0;
+    static const char *const supported[] = { "22.5.0", "23.0.0", "23.0.1" };
+    for (size_t i = 0; display_version && i < sizeof(supported) / sizeof(supported[0]); ++i)
+        if (!strcmp(display_version, supported[i])) return true;
+    return false;
 }
 
 bool openpak_firmware_supported(char *ver, int verlen) {

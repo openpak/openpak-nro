@@ -1,29 +1,30 @@
-These files are built from Atmosphere 1.11.2:
-https://github.com/Atmosphere-NX/Atmosphere/tree/5388824be146a89619e8d641acd64599cf1c5f62
+These files are built from Atmosphere 1.12.0:
+https://github.com/Atmosphere-NX/Atmosphere/tree/28d6a2e11f2640077bbb8a9fbd463d3fa12b6984
 
-ams_mitm-1.11.2.kip
+ams_mitm-1.12.0.kip
   Local modification: allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId.
   Patch: tools/atmosphere-ssl.patch.
 
-loader-1.11.2.kip and fusee-1.11.2.bin (OpenPak store trust)
+loader-1.12.0.kip and fusee-1.12.0.bin (OpenPak store trust)
   Local modifications, both in tools/atmosphere-store-trust.patch:
   - Loader (stratosphere/loader/source/ldr_meta.cpp): accept an invalid NPDM ACID signature
     only when the ACID's program id range lies within 0x01FE000000000000-0x01FEFFFFFFFFFFFF,
     the range OpenPak's store titles use. Every other program is verified as before.
   - fusee (fusee/program/source/fusee_stratosphere.cpp): one compiled-in patch to the stock
-    FS 22.5.0 KIP, applied only when fusee identifies FS 22.5.0: offset 0x26938,
-    E0 1B 00 36 (tbz w0,#0 after the NCA header-1 RSA verify) -> 1F 20 03 D5 (nop).
-  Built from Atmosphere 1.11.2 with tools/atmosphere-ssl.patch and
-  tools/atmosphere-store-trust.patch applied, in a tree whose git stamp read -06ed0f6-dirty
-  (OpenPak's Atmosphere clone: the same sources plus documentation commits), with devkitARM r68
-  and devkitA64 r30 (GCC 16.1). tools/build-system-module.sh uses that toolchain and pins that
-  stamp: its fusee.bin is identical to this one; its
-  loader.kip differs only in the 20-byte GNU build ID, which hashes the absolute build path
-  recorded in the debug information.
-  sha256 loader-1.11.2.kip 0039f1557b21a6278d240e2e3cdd5c936c6b672ad69ecb6bafe940b03534e4d5
-  sha256 fusee-1.11.2.bin  d2f1c3ecf09d0511b629e4e37cc30c4d410cd084ea29b0f0458e03f64b081cda
-  fusee.bin is used with the MTC overlays already in the official package3; a build from these
-  sources produces the same overlays, and the build script checks that.
+    FS KIP, applied only to an FS fusee identifies by hash: a tbz w0,#0 after the NCA header-1
+    RSA verify becomes 1F 20 03 D5 (nop) at offset 0x26938 (FS 22.5.0, FAT32 and exFAT),
+    0x279A8 (FS 23.0.0) or 0x279B8 (FS 23.0.0 exFAT).
+  Built with tools/build-system-module.sh: Atmosphere 1.12.0 with tools/atmosphere-ssl.patch and
+  tools/atmosphere-store-trust.patch applied, git stamp pinned to -28d6a2e-dirty, devkitARM r68
+  and devkitA64 r30 (GCC 16.1), and libnx master at 146c3d1 (Atmosphere 1.12.0 needs pgl's
+  shell event API, which libnx 4.12.0 lacks). The stamp is pinned so a rebuild should give the
+  same fusee.bin and KIPs differing only in their 20-byte GNU build IDs (which hash the absolute
+  build path in the debug information); a second build has not been compared yet.
+  sha256 ams_mitm-1.12.0.kip eff619ada00bfdddd4c33b83f92fdd9fe0c652e53e59454c2af4b73db21f34a8
+  sha256 loader-1.12.0.kip   ceddc4ee4101cdff77ba1c5b8bb0eb358056436895379bd10da7a1328e886175
+  sha256 fusee-1.12.0.bin    b2931945873aa663edaa60970592aeaa717eba863cce220f2d46bf33bfe36b76
+  fusee.bin is used with the MTC overlays already in the official package3 (the same as 1.11.2's);
+  a build from these sources produces the same overlays, and the build script checks that.
 
 The patches and the build script are supplied in the openpak-nro source tree:
 tools/atmosphere-ssl.patch, tools/atmosphere-store-trust.patch and tools/build-system-module.sh.

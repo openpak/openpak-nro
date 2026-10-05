@@ -71,7 +71,7 @@ bool openpak_package_build(uint8_t *p, size_t size, const uint8_t *kip, size_t n
                            const uint8_t *loader, size_t ln, const uint8_t *fusee, size_t fn) {
     // Exact release match prevents altering an unsupported or independently modified boot image.
     if (size!=PACKAGE_SIZE || !fingerprint(p,size,
-        "f162a419887374028103e097dc5679f97b3b22501fee667405a3bc965eeaa3f2")) return false;
+        "3cc9d6ca5688e403c36974bced1089397ef8b36a4252f720207ae3d41a6eb557")) return false;
     if (n<0x100 || n>0x100000 || memcmp(kip,"KIP1ams.mitm",12)) return false;
     if (!loader!=!fusee) return false;
     if (loader && (ln<0x100 || memcmp(loader,"KIP1Loader\0\0\0\0\0\0",16) || memcmp(loader+0x10,LOADER_ID,8))) return false;
@@ -357,6 +357,15 @@ bool openpak_exosphere_blank(bool blank,char *err,int errlen) {
     free(b);free(out);return ok;
 }
 
+// The packages earlier builds wrote from Atmosphere 1.11.2: ams_mitm alone (0.3.1-0.3.14), then
+// with store trust (0.3.15-0.3.17). They are OpenPak's own, so a rebuild may replace them.
+bool openpak_package_outdated(void) {
+    size_t n=0;uint8_t *b=read_file(OPENPAK_PACKAGE,&n,false);if(!b)return false;
+    bool ok=fingerprint(b,n,"5567550fc47a48547f169615fbebc9a6cb702af45bab549b31e1bf678447c467") ||
+            fingerprint(b,n,"4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2");
+    free(b);return ok;
+}
+
 bool openpak_system_install(char *err,int errlen) {
     if(!recover_file(BOOT) || !recover_file(STORE) || !recover_file(OPENPAK_PACKAGE)) {
         snprintf(err,errlen,"Could not recover interrupted system setup");return false;
@@ -366,14 +375,14 @@ bool openpak_system_install(char *err,int errlen) {
     size_t n=0,kn=0,ln=0,fn=0,sn=0,cn=0,outn=0,bn=0,new_bn=0;
     const char *failure="Could not prepare system support";
     base=read_file(PACKAGE,&n,false);
-    kip=read_file(ASSET "system/ams_mitm-1.11.2.kip",&kn,true);
-    loader=read_file(ASSET "system/loader-1.11.2.kip",&ln,true);
-    fusee=read_file(ASSET "system/fusee-1.11.2.bin",&fn,true);
+    kip=read_file(ASSET "system/ams_mitm-1.12.0.kip",&kn,true);
+    loader=read_file(ASSET "system/loader-1.12.0.kip",&ln,true);
+    fusee=read_file(ASSET "system/fusee-1.12.0.bin",&fn,true);
     if(!base||!kip||!loader||!fusee||!(previous=malloc(n?n:1)))goto done;
     memcpy(previous,base,n);
     // The package this one replaces: ams_mitm alone, what every build before store trust wrote
     // to /atmosphere/package3-openpak. Built from the same official package to recognise it.
-    failure="System support requires unmodified Atmosphere 1.11.2";
+    failure="System support requires unmodified Atmosphere 1.12.0";
     if(!openpak_package_build(base,n,kip,kn,loader,ln,fusee,fn) ||
        !openpak_package_build(previous,n,kip,kn,NULL,0,NULL,0))goto done;
     failure="Boot configuration changed; existing file preserved";
@@ -385,7 +394,8 @@ bool openpak_system_install(char *err,int errlen) {
     if(!managed_or_original(STORE,STATE "/certificate.managed",STATE "/certificate.original",STATE "/certificate.absent")
        && !openpak_store_file_is_ours())goto done;
     failure="OpenPak boot package changed; existing file preserved";
-    if(exists(OPENPAK_PACKAGE) && !same_file(OPENPAK_PACKAGE,base,n) && !same_file(OPENPAK_PACKAGE,previous,n))goto done;
+    if(exists(OPENPAK_PACKAGE) && !same_file(OPENPAK_PACKAGE,base,n) && !same_file(OPENPAK_PACKAGE,previous,n) &&
+       !openpak_package_outdated())goto done;
     failure="Could not read the system certificates";
     source=system_store(&sn);ca=read_file(ASSET "ca.der",&cn,true);
     if(!source||!ca)goto done;
