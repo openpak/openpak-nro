@@ -3,7 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased — firmware 23.0.0 / 23.0.1 and Atmosphère 1.12.0
+## v0.3.18 — 2026-10-05 (firmware 23.0.0 / 23.0.1 and Atmosphère 1.12.0)
+
+- Hardware: the 1.12.0 boot package (`eff03265…`) booted tobagin's console on 22.5.0 and, after a
+  Daybreak update of the emuMMC (FAT32 + exFAT), on 23.0.1.
 
 - system: the boot package is built from Atmosphère **1.12.0** (sha256 `3cc9d6ca…`), which
   firmware 23 needs; `ams_mitm`, Loader and fusee are rebuilt from 1.12.0 with the same two

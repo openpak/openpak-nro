@@ -28,7 +28,8 @@ parser.add_argument('--old-store-package3',type=Path,default=local(scratch/'hbst
 a=parser.parse_args()
 # What the builder makes from the official 1.12.0 package (sha 3cc9d6ca…): ams_mitm alone, as every
 # build before store trust wrote it, and ams_mitm + Loader + fusee. The 1.11.2 store package of the
-# same build booted on hardware and launched a store title (2026-10-04); this one has not booted yet.
+# same build booted on hardware and launched a store title (2026-10-04); this one booted 22.5.0 and
+# 23.0.1 (2026-10-05).
 PREVIOUS_SHA='12f5eb5225d42ba1f08b285c4b07956c66d32e57b871874b6e5b222c2934b41a'
 STORE_SHA='eff03265fe175feb424c0d7e42726b13f5ef8eb93824e91ce1556f69175815ca'
 with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
