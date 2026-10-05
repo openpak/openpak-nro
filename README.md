@@ -23,7 +23,7 @@ address (the console requires two different public IPs). Both are answered by `n
 
 Selecting **OpenPak** also installs the two News patches the News probe proved on hardware
 (`news/tools/news-patch`): the BCAT verification key becomes OpenPak's, and the News catalog
-download skips the Nintendo edge token. Both are keyed by the BCAT build id (HOS 22.5.0
+download skips the Nintendo edge token. Both are keyed by the BCAT build id (HOS 22.5.0 and 23.0.x
 today), so a console on another firmware simply ignores them. Selecting **Nintendo** removes
 them. The News host `bcat-topics-lp1.cdn.nintendo.net` is in the managed host list. Re-select
 OpenPak with this build, even if already active, then reboot.

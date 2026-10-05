@@ -45,6 +45,27 @@ if os.path.exists(list_ips):
     got = {off: data for off, data in recs}
     check(got == want, f"news_list_no_dauth records {got!r} != {want!r}")
 
+# 1b. The same patch for 23.0.0/23.0.1's bcat (same instruction shape, moved +0x3fd0).
+BCAT_23 = "84EF6747BB15A01707B883B29A2A1CE5FC1734C2000000000000000000000000"
+list23 = os.path.join(ROOT, "romfs/patches/exefs_patches/openpak_news_list_no_dauth", BCAT_23 + ".ips")
+check(os.path.exists(list23), "news_list_no_dauth 23.x IPS missing")
+if os.path.exists(list23):
+    got = {off: data for off, data in parse_ips(list23)}
+    want = {0x118068: bytes.fromhex("1f000039e0031f2a"), 0x11b350: bytes.fromhex("1f000039e0031f2a")}
+    check(got == want, f"news_list_no_dauth 23.x records {got!r} != {want!r}")
+dauth23 = os.path.join(ROOT, "romfs/patches/exefs_patches/openpak_news_no_dauth", BCAT_23 + ".ips")
+check(os.path.exists(dauth23), "news_no_dauth 23.x IPS missing")
+if os.path.exists(dauth23):
+    recs = parse_ips(dauth23)
+    check(recs == [(0x100074, bytes.fromhex("bf020039e0031f2a"))], f"news_no_dauth 23.x record unexpected: {recs!r}")
+key23 = os.path.join(ROOT, "romfs/patches/exefs_patches/openpak_bcat_key", BCAT_23 + ".ips")
+check(os.path.exists(key23), "bcat_key 23.x IPS missing")
+if os.path.exists(key23):
+    k22 = parse_ips(os.path.join(ROOT, "romfs/patches/exefs_patches/openpak_bcat_key", BCAT_BUILD + ".ips"))
+    k23 = parse_ips(key23)
+    check(len(k23) == 1 and k23[0][0] == 0x225254 and k23[0][1] == k22[0][1],
+          "bcat_key 23.x must write the same OpenPak modulus at 0x225254")
+
 # 2. News memory-download patch still there and well-formed (gating unchanged).
 dauth_ips = os.path.join(
     ROOT, "romfs/patches/exefs_patches/openpak_news_no_dauth", BCAT_BUILD + ".ips")
