@@ -3,6 +3,13 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.19 — 2026-10-05 (News on firmware 23.0.x)
+
+- patches: the three News patches for 23.0.0/23.0.1's bcat (build `84EF6747…`): the OpenPak BCAT key
+  (same modulus, now at `0x225254`), and the memory-download and list/topics edge-token skips (same
+  instructions, moved +0x37d0/+0x3fd0). News commands 30100/30300/40100 and subscription status 2 are
+  unchanged on 23.x. Not yet run on 23.x hardware.
+
 ## v0.3.18 — 2026-10-05 (firmware 23.0.0 / 23.0.1 and Atmosphère 1.12.0)
 
 - Hardware: the 1.12.0 boot package (`eff03265…`) booted tobagin's console on 22.5.0 and, after a
