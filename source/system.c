@@ -357,13 +357,16 @@ bool openpak_exosphere_blank(bool blank,char *err,int errlen) {
     free(b);free(out);return ok;
 }
 
-// The packages earlier builds wrote from Atmosphere 1.11.2: ams_mitm alone (0.3.1-0.3.14), then
-// with store trust (0.3.15-0.3.17). They are OpenPak's own, so a rebuild may replace them.
-bool openpak_package_outdated(void) {
-    size_t n=0;uint8_t *b=read_file(OPENPAK_PACKAGE,&n,false);if(!b)return false;
-    bool ok=fingerprint(b,n,"5567550fc47a48547f169615fbebc9a6cb702af45bab549b31e1bf678447c467") ||
-            fingerprint(b,n,"4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2");
-    free(b);return ok;
+// The packages earlier builds wrote. They are OpenPak's own, so a rebuild may replace them.
+// 2: from Atmosphere 1.11.2, ams_mitm alone (0.3.1-0.3.14) or with store trust (0.3.15-0.3.17).
+// 1: from Atmosphere 1.12.0 without the firmware-23 dns.mitm fix (0.3.18-0.3.19).
+int openpak_package_outdated(void) {
+    size_t n=0;uint8_t *b=read_file(OPENPAK_PACKAGE,&n,false);if(!b)return 0;
+    int age=fingerprint(b,n,"5567550fc47a48547f169615fbebc9a6cb702af45bab549b31e1bf678447c467") ||
+            fingerprint(b,n,"4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2") ? 2 :
+            fingerprint(b,n,"12f5eb5225d42ba1f08b285c4b07956c66d32e57b871874b6e5b222c2934b41a") ||
+            fingerprint(b,n,"eff03265fe175feb424c0d7e42726b13f5ef8eb93824e91ce1556f69175815ca") ? 1 : 0;
+    free(b);return age;
 }
 
 bool openpak_system_install(char *err,int errlen) {

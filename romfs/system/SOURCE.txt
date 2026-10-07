@@ -2,8 +2,12 @@ These files are built from Atmosphere 1.12.0:
 https://github.com/Atmosphere-NX/Atmosphere/tree/28d6a2e11f2640077bbb8a9fbd463d3fa12b6984
 
 ams_mitm-1.12.0.kip
-  Local modification: allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId.
-  Patch: tools/atmosphere-ssl.patch.
+  Local modifications:
+  - allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId (tools/atmosphere-ssl.patch);
+  - dns.mitm for firmware 23's new resolver commands: upstream's own fix, Atmosphere-NX/Atmosphere
+    f5cd91260 (tools/atmosphere-dns-f5cd912.patch), with OpenPak's correction on top
+    (tools/atmosphere-dns-openpak.patch): QueryAddrInfoRequestWithOptions forwards the redirect target
+    as a numeric literal and keeps the real query id; Fetch and CancelQuery are not overridden.
 
 loader-1.12.0.kip and fusee-1.12.0.bin (OpenPak store trust)
   Local modifications, both in tools/atmosphere-store-trust.patch:
@@ -20,7 +24,7 @@ loader-1.12.0.kip and fusee-1.12.0.bin (OpenPak store trust)
   shell event API, which libnx 4.12.0 lacks). The stamp is pinned so a rebuild should give the
   same fusee.bin and KIPs differing only in their 20-byte GNU build IDs (which hash the absolute
   build path in the debug information); a second build has not been compared yet.
-  sha256 ams_mitm-1.12.0.kip eff619ada00bfdddd4c33b83f92fdd9fe0c652e53e59454c2af4b73db21f34a8
+  sha256 ams_mitm-1.12.0.kip 8a22cf3b9e4d8b4481a8d43f6a10aef05556fce7b8bd9bf57731f81fe4588fc1
   sha256 loader-1.12.0.kip   ceddc4ee4101cdff77ba1c5b8bb0eb358056436895379bd10da7a1328e886175
   sha256 fusee-1.12.0.bin    b2931945873aa663edaa60970592aeaa717eba863cce220f2d46bf33bfe36b76
   fusee.bin is used with the MTC overlays already in the official package3 (the same as 1.11.2's);

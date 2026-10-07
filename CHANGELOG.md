@@ -3,6 +3,20 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.20 — 2026-10-07 (firmware 23's system services reach OpenPak)
+
+- system: dns.mitm now redirects the lookups firmware 23's system services make. 23.0.0 moved them to
+  new resolver commands (QueryAddrInfoRequestWithOptions / FetchAddrInfoRequestWithOptions) that
+  Atmosphère 1.12.0 does not hook, so account, friends, push, BCAT, NIM and the eShop's account
+  identity went to Nintendo instead. The boot package carries Atmosphère's own fix (f5cd91260, not yet
+  in a release) with one correction: the query is forwarded with the redirect target as a numeric
+  literal and the resolver's own query id, so Fetch and Cancel go to the resolver untouched. Upstream's
+  version kept its own ids and answered every Fetch itself, which on hardware left the real queries
+  uncollected and stopped resolution after the first few dozen lookups.
+- Hardware 2026-10-07, 23.0.1, DNS automatic: connection test, eShop downloads, push and presence work.
+- system: a package3-openpak from 0.3.18–0.3.19 is recognised as OpenPak's and replaced; at launch a
+  console still on one is told to select OpenPak again.
+
 ## v0.3.19 — 2026-10-05 (News on firmware 23.0.x)
 
 - patches: the three News patches for 23.0.0/23.0.1's bcat (build `84EF6747…`): the OpenPak BCAT key
