@@ -8,8 +8,9 @@ bool openpak_system_remove(char *err, int errlen);
 bool openpak_exosphere_blank(bool blank, char *err, int errlen);   // blank_prodinfo_emummc := blank, backup kept
 // A Loader KIP in /atmosphere/kips that fusee would load ahead of OpenPak's: its file name.
 bool openpak_loader_override(char *name, int len);
-// /atmosphere/package3-openpak is one an earlier build wrote from Atmosphere 1.11.2 (cannot boot 23.x).
-bool openpak_package_outdated(void);
+// /atmosphere/package3-openpak is one an earlier build wrote: 2 = Atmosphere 1.11.2 (cannot boot 23.x),
+// 1 = 1.12.0 without the firmware-23 dns.mitm fix, 0 = neither.
+int openpak_package_outdated(void);
 // Pure transformations used by the installer and host-side regression checks.
 // Swaps ams_mitm into the official package3; with loader and fusee (both or neither) also the
 // store-trust Loader KIP and fusee. Without them it is the package builds before store trust wrote.

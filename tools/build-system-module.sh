@@ -13,7 +13,13 @@ build_dir=$(mktemp -d -t openpak-atmosphere-XXXXXX)
 ams=1.12.0   # the Atmosphere release these are built from; system.c pins its package3
 trap 'rm -rf -- "$build_dir"' EXIT
 git clone --depth 1 --branch "$ams" https://github.com/Atmosphere-NX/Atmosphere.git "$build_dir/source"
-git -C "$build_dir/source" apply "$repo_dir/tools/atmosphere-ssl.patch" "$repo_dir/tools/atmosphere-store-trust.patch"
+# atmosphere-dns-f5cd912.patch is upstream's own fix, Atmosphere-NX/Atmosphere f5cd91260 (hexkyz,
+# 2026-10-06, "dns.mitm: implement mitm for the new c-ares resolver"): firmware 23 resolves through new
+# sfdnsres commands (100/102/104) that 1.12.0's dns.mitm does not hook. Drop it once a release has it.
+# atmosphere-dns-openpak.patch, on top of it: command 100 forwards the redirect target as a numeric literal and
+# keeps the real query id; 102/104 are no longer overridden (upstream's version left the real queries uncollected).
+git -C "$build_dir/source" apply "$repo_dir/tools/atmosphere-ssl.patch" "$repo_dir/tools/atmosphere-store-trust.patch" \
+    "$repo_dir/tools/atmosphere-dns-f5cd912.patch" "$repo_dir/tools/atmosphere-dns-openpak.patch"
 # The git stamp is pinned to the release commit so two builds of these sources match: fusee byte
 # for byte; Loader only differs in its 20-byte GNU build ID, which hashes the absolute build path
 # held in the debug info.

@@ -22,16 +22,18 @@ def local(p):
 parser=argparse.ArgumentParser()
 parser.add_argument('--package3',type=Path,
                     default=local(scratch/'ams-1.12.0/sd/atmosphere/package3'))
-parser.add_argument('--store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store-1.12.0'))
-# The 1.11.2 package OpenPak 0.3.15-0.3.17 wrote (it booted on hardware): an upgrade replaces it.
-parser.add_argument('--old-store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store'))
+parser.add_argument('--store-package3',type=Path,default=local(scratch/'hbstore/pkg3/package3-openpak-store-dnsfix'))
+# Store packages earlier releases wrote, both booted on hardware: 0.3.15-0.3.17 (1.11.2) and
+# 0.3.18-0.3.19 (1.12.0 without the dns.mitm fix). An upgrade replaces either.
+OLD_STORE={'4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2':scratch/'hbstore/pkg3/package3-openpak-store',
+           'eff03265fe175feb424c0d7e42726b13f5ef8eb93824e91ce1556f69175815ca':scratch/'hbstore/pkg3/package3-openpak-store-1.12.0'}
 a=parser.parse_args()
 # What the builder makes from the official 1.12.0 package (sha 3cc9d6ca…): ams_mitm alone, as every
 # build before store trust wrote it, and ams_mitm + Loader + fusee. The 1.11.2 store package of the
-# same build booted on hardware and launched a store title (2026-10-04); this one booted 22.5.0 and
-# 23.0.1 (2026-10-05).
-PREVIOUS_SHA='12f5eb5225d42ba1f08b285c4b07956c66d32e57b871874b6e5b222c2934b41a'
-STORE_SHA='eff03265fe175feb424c0d7e42726b13f5ef8eb93824e91ce1556f69175815ca'
+# same build booted on hardware and launched a store title (2026-10-04). This one adds upstream's
+# firmware-23 dns.mitm fix with OpenPak's correction (tools/atmosphere-dns-*.patch); booted on 23.0.1 hardware 2026-10-07.
+PREVIOUS_SHA='cdb45bb91119991404bb3b08a5a6e3e738abd80b99cd1b19ae78be62ce730703'
+STORE_SHA='175f94de55aa4cf1f704cd110c4339617df0a339537033502b9bce9cde2e031f'
 with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     tmp=Path(directory)
     lib=tmp/'system.so'
@@ -346,15 +348,14 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             assert not api.openpak_system_install(err,256)
             assert err.value==b'OpenPak boot package changed; existing file preserved',err.value
             assert alternate.read_bytes()==foreign and boot.read_bytes()==boot_expected
-        # The 1.11.2 packages earlier releases wrote are OpenPak's too: replaced, not preserved.
-        if a.old_store_package3:
-            old=a.old_store_package3.read_bytes()
-            assert hashlib.sha256(old).hexdigest()=='4e2ac49bb8547c8d17af1ebcc092d60a3c4932a7c31ee2e2bd06113e619530e2'
+        # The packages earlier releases wrote are OpenPak's too: replaced, not preserved.
+        for want,path in OLD_STORE.items():
+            if not path.is_file():
+                print('SKIP: upgrade from store package %s… (none in the workspace)'%want[:8]);continue
+            old=path.read_bytes();assert hashlib.sha256(old).hexdigest()==want
             alternate.write_bytes(old)
             assert api.openpak_system_install(err,256),err.value
             assert alternate.read_bytes()==store
-        else:
-            print('SKIP: upgrade from the 1.11.2 store package (no --old-store-package3, none in the workspace)')
         alternate.write_bytes(previous)
         assert api.openpak_system_install(err,256),err.value
         # Disable after the upgrade: the boot entry goes back, package3 untouched, the inactive

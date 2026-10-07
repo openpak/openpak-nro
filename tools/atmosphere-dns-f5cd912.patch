@@ -1,0 +1,991 @@
+diff --git a/libraries/libstratosphere/include/stratosphere/socket/socket_types.hpp b/libraries/libstratosphere/include/stratosphere/socket/socket_types.hpp
+index 8547cf8211..b9bd3a0bfa 100644
+--- a/libraries/libstratosphere/include/stratosphere/socket/socket_types.hpp
++++ b/libraries/libstratosphere/include/stratosphere/socket/socket_types.hpp
+@@ -158,7 +158,40 @@ namespace ams::socket {
+         char *ai_canonname;
+         AddrInfo *ai_next;
+     };
+-
++    
++    /* NOTE: We are using the c-ares structs under ams::socket. */
++    /* Should we include c-ares instead somewhere? */
++    struct ares_addrinfo_node {
++        int ai_ttl;
++        int ai_flags;
++        int ai_family;
++        int ai_socktype;
++        int ai_protocol;
++        socklen_t ai_addrlen;
++        struct sockaddr *ai_addr;
++        struct ares_addrinfo_node *ai_next;
++    };
++    
++    struct ares_addrinfo_cname {
++        int ttl;
++        char *alias;
++        char *name;
++        struct ares_addrinfo_cname *next;
++    };
++    
++    struct ares_addrinfo {
++        struct ares_addrinfo_cname *cnames;
++        struct ares_addrinfo_node  *nodes;
++        char *name;
++    };
++    
++    struct ares_addrinfo_hints {
++        int ai_flags;
++        int ai_family;
++        int ai_socktype;
++        int ai_protocol;
++    };
++    
+     struct TimeVal {
+         long tv_sec;
+         long tv_usec;
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.cpp b/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.cpp
+index 5daf6421bf..0d514c6ce8 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.cpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.cpp
+@@ -21,6 +21,20 @@
+ #include "sfdnsres_shim.h"
+ 
+ namespace ams::mitm::socket::resolver {
++    
++    namespace {
++        
++        struct AresAddrInfoQuery {
++            std::string hostname;
++            ams::socket::InAddrT redirect_addr;
++            u16 redirect_port;
++            const struct ams::socket::ares_addrinfo_hints *hint;
++        };
++        
++        std::map<ssize_t, std::unique_ptr<AresAddrInfoQuery>> g_ares_addr_info_queries;
++        ssize_t g_current_ares_addr_info_query_id;
++        
++    }
+ 
+     ssize_t SerializeRedirectedHostEnt(u8 * const dst, size_t dst_size, const char *hostname, ams::socket::InAddrT redirect_addr) {
+         struct in_addr addr = { .s_addr = redirect_addr };
+@@ -85,6 +99,97 @@ namespace ams::mitm::socket::resolver {
+         AMS_ABORT_UNLESS(result >= 0);
+         return result;
+     }
++    
++    ssize_t QueueAresAddrInfoQuery(const char *hostname, ams::socket::InAddrT redirect_addr, u16 redirect_port, const struct ams::socket::ares_addrinfo_hints *hint) {              
++        ssize_t query_id = g_current_ares_addr_info_query_id;
++        
++        AresAddrInfoQuery query;
++        query.hostname = hostname;
++        query.redirect_addr = redirect_addr;
++        query.redirect_port = redirect_port;
++        query.hint = hint;
++
++        g_ares_addr_info_queries.emplace(query_id, std::make_unique<AresAddrInfoQuery>(query));
++        
++        /* NOTE: This really just increases ad infinitum. Should we bother checking it? */
++        ++g_current_ares_addr_info_query_id;
++        
++        return query_id;
++    }
++    
++    ssize_t DequeueAresAddrInfoQuery(u8 * const dst, size_t dst_size, u32 query_id) {
++        AresAddrInfoQuery *query = nullptr;
++        
++        for (auto it = g_ares_addr_info_queries.begin(); it != g_ares_addr_info_queries.end(); ++it) {
++            if (it->first == static_cast<ssize_t>(query_id)) {
++                query = it->second.get();
++                break;
++            }
++        }
++        
++        if (query == nullptr) {
++            return 0;
++        }
++        
++        struct ams::socket::ares_addrinfo_node node = {
++            .ai_ttl      = 0,
++            .ai_flags    = AF_UNSPEC,
++            .ai_family   = 0,
++            .ai_socktype = 0,
++            .ai_protocol = 0,
++            .ai_addrlen  = 0,
++            .ai_next     = nullptr,
++        };
++        
++        if (query->hint != nullptr) {
++            std::memcpy(reinterpret_cast<void *>(std::addressof(node.ai_flags)), reinterpret_cast<const void *>(query->hint), sizeof(struct ams::socket::ares_addrinfo_hints));
++        }
++
++        switch (node.ai_family) {
++            case AF_UNSPEC: node.ai_family = AF_INET; break;
++            case AF_INET:   node.ai_family = AF_INET; break;
++            case AF_INET6:  AMS_ABORT("Redirected INET6 not supported"); break;
++            AMS_UNREACHABLE_DEFAULT_CASE();
++        }
++
++        if (node.ai_socktype == 0) {
++            node.ai_socktype = SOCK_STREAM;
++        }
++
++        if (node.ai_protocol == 0) {
++            node.ai_protocol = IPPROTO_TCP;
++        }
++
++        const struct sockaddr_in sin = {
++            .sin_family = AF_INET,
++            .sin_port   = ams::socket::InetHtons(query->redirect_port),
++            .sin_addr   = { .s_addr = query->redirect_addr },
++            .sin_zero   = {},
++        };
++
++        node.ai_addrlen = sizeof(sin);
++        node.ai_addr    = (struct sockaddr *)(std::addressof(sin));
++        
++        struct ams::socket::ares_addrinfo ai {
++            .cnames = nullptr,
++            .nodes  = std::addressof(node),
++            .name   = const_cast<char *>(query->hostname.c_str()),
++        };
++
++        const auto result = serializer::DNSSerializer::ToBuffer(dst, dst_size, ai);
++        AMS_ABORT_UNLESS(result >= 0);
++        g_ares_addr_info_queries.erase(query_id);
++        return result;
++    }
++    
++    void CancelAresAddrInfoQuery(u32 query_id) {
++        for (auto it = g_ares_addr_info_queries.begin(); it != g_ares_addr_info_queries.end(); ++it) {
++            if (it->first == static_cast<ssize_t>(query_id)) {
++                g_ares_addr_info_queries.erase(it);
++                break;
++            }
++        }
++    }
+ 
+     Result ResolverImpl::GetHostByNameRequest(u32 cancel_handle, const sf::ClientProcessId &client_pid, bool use_nsd_resolve, const sf::InBuffer &name, sf::Out<u32> out_host_error, sf::Out<u32> out_errno, const sf::OutBuffer &out_hostent, sf::Out<u32> out_size) {
+         AMS_UNUSED(cancel_handle, client_pid, use_nsd_resolve);
+@@ -208,6 +313,83 @@ namespace ams::mitm::socket::resolver {
+ 
+         R_SUCCEED();
+     }
++    
++    Result ResolverImpl::ReportTelemetry(const sf::ClientProcessId &client_pid, const sf::InBuffer &telemetry, u32 version) {
++        /* NOTE: As of 23.0.0 this command does nothing. We mitm it anyway for future proofing. */
++        AMS_UNUSED(client_pid, telemetry, version);
++        R_SUCCEED();
++    }
++    
++    Result ResolverImpl::QueryAddrInfoRequestWithOptions(const sf::ClientProcessId &client_pid, const sf::InAutoSelectBuffer &node, const sf::InAutoSelectBuffer &srv, const sf::InAutoSelectBuffer &serialized_hint, sf::Out<u32> out_query_id, u32 fd, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_retval, sf::Out<s32> out_errno) {
++        AMS_UNUSED(client_pid, fd, options_version, options, num_options);
++
++        const char *hostname = reinterpret_cast<const char *>(node.GetPointer());
++
++        LogDebug("[%016lx]: QueryAddrInfoRequestWithOptions(%s, %s)\n", m_client_info.program_id.value, hostname, reinterpret_cast<const char *>(srv.GetPointer()));
++
++        R_UNLESS(hostname != nullptr, sm::mitm::ResultShouldForwardToSession());
++
++        ams::socket::InAddrT redirect_addr = {};
++        R_UNLESS(GetRedirectedHostByName(std::addressof(redirect_addr), hostname), sm::mitm::ResultShouldForwardToSession());
++
++        u16 port = 0;
++        if (srv.GetPointer() != nullptr) {
++            for (const char *cur = reinterpret_cast<const char *>(srv.GetPointer()); *cur != 0; ++cur) {
++                AMS_ABORT_UNLESS(std::isdigit(static_cast<unsigned char>(*cur)));
++                port *= 10;
++                port += *cur - '0';
++            }
++        }
++
++        LogDebug("[%016lx]: Queueing redirection %s:%u to %u.%u.%u.%u\n", m_client_info.program_id.value, hostname, port, (redirect_addr >> 0) & 0xFF, (redirect_addr >> 8) & 0xFF, (redirect_addr >> 16) & 0xFF, (redirect_addr >> 24) & 0xFF);
++        
++        const bool use_hint = serialized_hint.GetPointer() != nullptr;
++        struct ams::socket::ares_addrinfo_hints hint = {};
++        if (use_hint) {
++            AMS_ABORT_UNLESS(serializer::DNSSerializer::FromBuffer(hint, serialized_hint.GetPointer(), serialized_hint.GetSize()) >= 0);
++        }
++        
++        const auto query_id = QueueAresAddrInfoQuery(hostname, redirect_addr, port, use_hint ? std::addressof(hint) : nullptr);
++        
++        LogDebug("[%016lx]: Queued query with id 0x%lx\n", m_client_info.program_id.value, query_id);
++        
++        /* Forward the query. The provided socket EventFd must be signalled by having bsdsocket write 1 to the associated socket. */
++        /* This is fine though, we only care about replacing with our redirection during fetch. */        
++        R_TRY(sfdnsresQueryAddrInfoRequestWithOptionsFwd(m_forward_service.get(), static_cast<u64>(client_pid.GetValue().value), node.GetPointer(), node.GetSize(), srv.GetPointer(), srv.GetSize(), serialized_hint.GetPointer(), serialized_hint.GetSize(), reinterpret_cast<u32 *>(out_query_id.GetPointer()), fd, options_version, options.GetPointer(), options.GetSize(), num_options, reinterpret_cast<s32 *>(out_retval.GetPointer()), reinterpret_cast<s32 *>(out_errno.GetPointer())));
++        
++        /* Replace with our own query. */
++        *out_query_id    = query_id;
++        *out_retval      = 0;
++        *out_errno       = 0;
++        
++        R_SUCCEED();
++    }
++    
++    Result ResolverImpl::FetchAddrInfoRequestWithOptions(const sf::ClientProcessId &client_pid, u32 query_id, u32 version, const sf::OutAutoSelectBuffer &out_addrinfo, sf::Out<u32> out_size, sf::Out<s32> out_retval, sf::Out<s32> out_errno) {
++        AMS_UNUSED(client_pid, version);
++
++        LogDebug("[%016lx]: FetchAddrInfoRequestWithOptions(%d)\n", m_client_info.program_id.value, query_id);
++        
++        const auto size = DequeueAresAddrInfoQuery(out_addrinfo.GetPointer(), out_addrinfo.GetSize(), query_id);
++        
++        LogDebug("[%016lx]: Dequeued query with size 0x%lx\n", m_client_info.program_id.value, size);
++        
++        *out_size        = size;
++        *out_retval      = 0;
++        *out_errno       = 0;
++
++        R_SUCCEED();
++    }
++    
++    Result ResolverImpl::CancelQuery(const sf::ClientProcessId &client_pid, u32 query_id) {
++        AMS_UNUSED(client_pid);
++
++        LogDebug("[%016lx]: CancelQuery(%d)\n", m_client_info.program_id.value, query_id);
++        
++        CancelAresAddrInfoQuery(query_id);
++
++        R_SUCCEED();
++    }
+ 
+     Result ResolverImpl::AtmosphereReloadHostsFile() {
+         /* Perform a hosts file reload. */
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.hpp b/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.hpp
+index 0b4036969b..91ae3b8194 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.hpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/dnsmitm_resolver_impl.hpp
+@@ -16,11 +16,15 @@
+ #pragma once
+ #include <stratosphere.hpp>
+ 
+-#define AMS_DNS_MITM_INTERFACE_INFO(C, H)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        \
+-    AMS_SF_METHOD_INFO(C, H,     2, Result, GetHostByNameRequest,            (u32 cancel_handle, const sf::ClientProcessId &client_pid, bool use_nsd_resolve, const sf::InBuffer &name, sf::Out<u32> out_host_error, sf::Out<u32> out_errno, const sf::OutBuffer &out_hostent, sf::Out<u32> out_size),                                                                                                                                       (cancel_handle, client_pid, use_nsd_resolve, name, out_host_error, out_errno, out_hostent, out_size))                                                               \
+-    AMS_SF_METHOD_INFO(C, H,     6, Result, GetAddrInfoRequest,              (u32 cancel_handle, const sf::ClientProcessId &client_pid, bool use_nsd_resolve, const sf::InBuffer &node, const sf::InBuffer &srv, const sf::InBuffer &serialized_hint, const sf::OutBuffer &out_addrinfo, sf::Out<u32> out_errno, sf::Out<s32> out_retval, sf::Out<u32> out_size),                                                                            (cancel_handle, client_pid, use_nsd_resolve, node, srv, serialized_hint, out_addrinfo, out_errno, out_retval, out_size))                                            \
+-    AMS_SF_METHOD_INFO(C, H,    10, Result, GetHostByNameRequestWithOptions, (const sf::ClientProcessId &client_pid, const sf::InAutoSelectBuffer &name, const sf::OutAutoSelectBuffer &out_hostent, sf::Out<u32> out_size, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_host_error, sf::Out<s32> out_errno),                                                                               (client_pid, name, out_hostent, out_size, options_version, options, num_options, out_host_error, out_errno),                                    hos::Version_5_0_0) \
+-    AMS_SF_METHOD_INFO(C, H,    12, Result, GetAddrInfoRequestWithOptions,   (const sf::ClientProcessId &client_pid, const sf::InBuffer &node, const sf::InBuffer &srv, const sf::InBuffer &serialized_hint, const sf::OutAutoSelectBuffer &out_addrinfo, sf::Out<u32> out_size, sf::Out<s32> out_retval, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_host_error, sf::Out<s32> out_errno), (client_pid, node, srv, serialized_hint, out_addrinfo, out_size, out_retval, options_version, options, num_options, out_host_error, out_errno), hos::Version_5_0_0) \
++#define AMS_DNS_MITM_INTERFACE_INFO(C, H)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         \
++    AMS_SF_METHOD_INFO(C, H,     2, Result, GetHostByNameRequest,            (u32 cancel_handle, const sf::ClientProcessId &client_pid, bool use_nsd_resolve, const sf::InBuffer &name, sf::Out<u32> out_host_error, sf::Out<u32> out_errno, const sf::OutBuffer &out_hostent, sf::Out<u32> out_size),                                                                                                                                       (cancel_handle, client_pid, use_nsd_resolve, name, out_host_error, out_errno, out_hostent, out_size))                                                                \
++    AMS_SF_METHOD_INFO(C, H,     6, Result, GetAddrInfoRequest,              (u32 cancel_handle, const sf::ClientProcessId &client_pid, bool use_nsd_resolve, const sf::InBuffer &node, const sf::InBuffer &srv, const sf::InBuffer &serialized_hint, const sf::OutBuffer &out_addrinfo, sf::Out<u32> out_errno, sf::Out<s32> out_retval, sf::Out<u32> out_size),                                                                            (cancel_handle, client_pid, use_nsd_resolve, node, srv, serialized_hint, out_addrinfo, out_errno, out_retval, out_size))                                             \
++    AMS_SF_METHOD_INFO(C, H,    10, Result, GetHostByNameRequestWithOptions, (const sf::ClientProcessId &client_pid, const sf::InAutoSelectBuffer &name, const sf::OutAutoSelectBuffer &out_hostent, sf::Out<u32> out_size, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_host_error, sf::Out<s32> out_errno),                                                                               (client_pid, name, out_hostent, out_size, options_version, options, num_options, out_host_error, out_errno),                                    hos::Version_5_0_0)  \
++    AMS_SF_METHOD_INFO(C, H,    12, Result, GetAddrInfoRequestWithOptions,   (const sf::ClientProcessId &client_pid, const sf::InBuffer &node, const sf::InBuffer &srv, const sf::InBuffer &serialized_hint, const sf::OutAutoSelectBuffer &out_addrinfo, sf::Out<u32> out_size, sf::Out<s32> out_retval, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_host_error, sf::Out<s32> out_errno), (client_pid, node, srv, serialized_hint, out_addrinfo, out_size, out_retval, options_version, options, num_options, out_host_error, out_errno), hos::Version_5_0_0)  \
++    AMS_SF_METHOD_INFO(C, H,    16, Result, ReportTelemetry,                 (const sf::ClientProcessId &client_pid, const sf::InBuffer &telemetry, u32 version),                                                                                                                                                                                                                                                                            (client_pid, telemetry, version),                                                                                                               hos::Version_23_0_0) \
++    AMS_SF_METHOD_INFO(C, H,   100, Result, QueryAddrInfoRequestWithOptions, (const sf::ClientProcessId &client_pid, const sf::InAutoSelectBuffer &node, const sf::InAutoSelectBuffer &srv, const sf::InAutoSelectBuffer &serialized_hint, sf::Out<u32> out_query_id, u32 fd, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_retval, sf::Out<s32> out_errno),                                 (client_pid, node, srv, serialized_hint, out_query_id, fd, options_version, options, num_options, out_retval, out_errno),                       hos::Version_23_0_0) \
++    AMS_SF_METHOD_INFO(C, H,   102, Result, FetchAddrInfoRequestWithOptions, (const sf::ClientProcessId &client_pid, u32 query_id, u32 version, const sf::OutAutoSelectBuffer &out_addrinfo, sf::Out<u32> out_size, sf::Out<s32> out_retval, sf::Out<s32> out_errno),                                                                                                                                                                        (client_pid, query_id, version, out_addrinfo, out_size, out_retval, out_errno),                                                                 hos::Version_23_0_0) \
++    AMS_SF_METHOD_INFO(C, H,   104, Result, CancelQuery,                     (const sf::ClientProcessId &client_pid, u32 query_id),                                                                                                                                                                                                                                                                                                          (client_pid, query_id),                                                                                                                         hos::Version_23_0_0) \
+     AMS_SF_METHOD_INFO(C, H, 65000, Result, AtmosphereReloadHostsFile,       (),                                                                                                                                                                                                                                                                                                                                                             ())
+ 
+ AMS_SF_DEFINE_MITM_INTERFACE(ams::mitm::socket::resolver, IResolver, AMS_DNS_MITM_INTERFACE_INFO, 0x5935F91A)
+@@ -44,7 +48,11 @@ namespace ams::mitm::socket::resolver {
+             Result GetAddrInfoRequest(u32 cancel_handle, const sf::ClientProcessId &client_pid, bool use_nsd_resolve, const sf::InBuffer &node, const sf::InBuffer &srv, const sf::InBuffer &serialized_hint, const sf::OutBuffer &out_addrinfo, sf::Out<u32> out_errno, sf::Out<s32> out_retval, sf::Out<u32> out_size);
+             Result GetHostByNameRequestWithOptions(const sf::ClientProcessId &client_pid, const sf::InAutoSelectBuffer &name, const sf::OutAutoSelectBuffer &out_hostent, sf::Out<u32> out_size, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_host_error, sf::Out<s32> out_errno);
+             Result GetAddrInfoRequestWithOptions(const sf::ClientProcessId &client_pid, const sf::InBuffer &node, const sf::InBuffer &srv, const sf::InBuffer &serialized_hint, const sf::OutAutoSelectBuffer &out_addrinfo, sf::Out<u32> out_size, sf::Out<s32> out_retval, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_host_error, sf::Out<s32> out_errno);
+-
++            Result ReportTelemetry(const sf::ClientProcessId &client_pid, const sf::InBuffer &telemetry, u32 version);
++            Result QueryAddrInfoRequestWithOptions(const sf::ClientProcessId &client_pid, const sf::InAutoSelectBuffer &node, const sf::InAutoSelectBuffer &srv, const sf::InAutoSelectBuffer &serialized_hint, sf::Out<u32> out_query_id, u32 fd, u32 options_version, const sf::InAutoSelectBuffer &options, u32 num_options, sf::Out<s32> out_retval, sf::Out<s32> out_errno);
++            Result FetchAddrInfoRequestWithOptions(const sf::ClientProcessId &client_pid, u32 query_id, u32 version, const sf::OutAutoSelectBuffer &out_addrinfo, sf::Out<u32> out_size, sf::Out<s32> out_retval, sf::Out<s32> out_errno);
++            Result CancelQuery(const sf::ClientProcessId &client_pid, u32 query_id);
++            
+             /* Extension commands. */
+             Result AtmosphereReloadHostsFile();
+     };
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_addrinfo.cpp b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_addrinfo.cpp
+index efbc79a158..f1e1934a03 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_addrinfo.cpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_addrinfo.cpp
+@@ -190,14 +190,20 @@ namespace ams::mitm::socket::resolver::serializer {
+                         return rc;
+                     }
+                 } else {
+-                    if (dst_size - (cur - dst) < addr_info.ai_addrlen) {
++                    if (hos::GetVersion() >= hos::Version_23_0_0) {
++                        /* 23.0.0 fixed this by returning an error instead. */
+                         rc = -1;
+                         return rc;
++                    } else {
++                        if (dst_size - (cur - dst) < addr_info.ai_addrlen) {
++                            rc = -1;
++                            return rc;
++                        }
++
++                        /* NOTE: This is clearly a nintendo bug, see the accompanying note in FromBufferInternalImpl */
++                        std::memmove(cur, std::addressof(addr_info.ai_addr), addr_info.ai_addrlen);
++                        rc = addr_info.ai_addrlen;
+                     }
+-
+-                    /* NOTE: This is clearly a nintendo bug, see the accompanying note in FromBufferInternalImpl */
+-                    std::memmove(cur, std::addressof(addr_info.ai_addr), addr_info.ai_addrlen);
+-                    rc = addr_info.ai_addrlen;
+                 }
+                 cur += rc;
+             }
+@@ -317,6 +323,7 @@ namespace ams::mitm::socket::resolver::serializer {
+                 } else if (IsAfInet<T>(out.ai_family)) {
+                     out.ai_addr = static_cast<SockAddrType<T> *>(ams::socket::impl::Alloc(sizeof(SockAddrInType<T>)));
+                     if (out.ai_addr == nullptr) {
++                        ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+                         rc = -1;
+                         return rc;
+                     }
+@@ -328,6 +335,7 @@ namespace ams::mitm::socket::resolver::serializer {
+                 } else if (IsAfInet6<T>(out.ai_family)) {
+                     out.ai_addr = static_cast<SockAddrType<T> *>(ams::socket::impl::Alloc(sizeof(SockAddrIn6Type<T>)));
+                     if (out.ai_addr == nullptr) {
++                        ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+                         rc = -1;
+                         return rc;
+                     }
+@@ -337,17 +345,24 @@ namespace ams::mitm::socket::resolver::serializer {
+                         return rc;
+                     }
+                 } else {
+-                    out.ai_addr = static_cast<decltype(out.ai_addr)>(ams::socket::impl::Alloc(out.ai_addrlen));
+-                    if (out.ai_addr == nullptr) {
++                    if (hos::GetVersion() >= hos::Version_23_0_0) {
++                        /* 23.0.0 fixed this by returning an error instead. */
++                        ams::socket::SetLastError(ams::socket::Errno::EInval);
+                         rc = -1;
+                         return rc;
++                    } else {
++                        out.ai_addr = static_cast<decltype(out.ai_addr)>(ams::socket::impl::Alloc(out.ai_addrlen));
++                        if (out.ai_addr == nullptr) {
++                            rc = -1;
++                            return rc;
++                        }
++
++                        /* NOTE: This is *clearly* a nintendo bug. */
++                        /* They obviously intend to copy to the buffer they just allocated, but instead they copy to the addrinfo structure itself. */
++                        /* Probably &out.ai_addr instead of &out.ai_addr[0]? Either way, we'll implement what they do, but... */
++                        std::memcpy(std::addressof(out.ai_addr), cur, out.ai_addrlen);
++                        rc = out.ai_addrlen;
+                     }
+-
+-                    /* NOTE: This is *clearly* a nintendo bug. */
+-                    /* They obviously intend to copy to the buffer they just allocated, but instead they copy to the addrinfo structure itself. */
+-                    /* Probably &out.ai_addr instead of &out.ai_addr[0]? Either way, we'll implement what they do, but... */
+-                    std::memcpy(std::addressof(out.ai_addr), cur, out.ai_addrlen);
+-                    rc = out.ai_addrlen;
+                 }
+                 cur += rc;
+             }
+@@ -368,6 +383,7 @@ namespace ams::mitm::socket::resolver::serializer {
+                 } else if (tmp_value == AddrInfoMagic) {
+                     out.ai_next = static_cast<T *>(ams::socket::impl::Alloc(sizeof(T)));
+                     if (out.ai_next == nullptr) {
++                        ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+                         rc = -1;
+                         return rc;
+                     }
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_ares.cpp b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_ares.cpp
+new file mode 100644
+index 0000000000..92adf8cab1
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_ares.cpp
+@@ -0,0 +1,380 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#include <stratosphere.hpp>
++#include "../dnsmitm_debug.hpp"
++#include "../socket_allocator.hpp"
++#include "serializer.hpp"
++
++namespace ams::mitm::socket::resolver::serializer {
++    
++    namespace {
++        
++        /* NOTE: This is local to the nn::socket::resolver::serializer namespace. */
++        struct AddrInfoNodeCname {
++            struct ams::socket::ares_addrinfo_node *node;
++            char *ai_canonname;
++        };
++
++        constexpr inline u32 AresMagic = 0xBEEFCAFE;
++        
++        template<typename T>
++        concept IsAresAddrInfo = std::same_as<T, struct ams::socket::ares_addrinfo>;
++        
++        template<typename T>
++        concept IsAresAddrInfoHints = std::same_as<T, struct ams::socket::ares_addrinfo_hints>;
++        
++        template<typename T>
++        concept IsAresAddrInfoNode = std::same_as<T, struct ams::socket::ares_addrinfo_node>;
++        
++        template<typename T>
++        concept IsAddrInfoNodeCname = std::same_as<T, AddrInfoNodeCname>;
++
++        template<typename T> requires IsAresAddrInfoNode<T> || IsAddrInfoNodeCname<T>
++        using SockAddrInType = typename std::conditional<std::same_as<T, struct ams::socket::ares_addrinfo> || std::same_as<T, AddrInfoNodeCname>, struct sockaddr_in, struct sockaddr_in>::type;
++
++        template<typename T> requires IsAresAddrInfoNode<T> || IsAddrInfoNodeCname<T>
++        using SockAddrIn6Type = typename std::conditional<std::same_as<T, struct ams::socket::ares_addrinfo> || std::same_as<T, AddrInfoNodeCname>, struct sockaddr_in6, struct sockaddr_in6>::type;
++
++        template<typename T> requires IsAresAddrInfoNode<T> || IsAddrInfoNodeCname<T>
++        constexpr bool IsAfInet(const auto ai_family) {
++            if constexpr (std::same_as<T, struct ams::socket::ares_addrinfo_node> || std::same_as<T, AddrInfoNodeCname>) {
++                /* NOTE: Keep this in case a nn::socket::AddrInfo equivalent is ever implemented for c-ares. */
++                /* As of 23.0.0 only the ares_addrinfo struct is supported in the serializer. */
++                return ai_family == AF_INET;
++            } else {
++                return ai_family == AF_INET;
++            }
++        }
++
++        template<typename T> requires IsAresAddrInfoNode<T> || IsAddrInfoNodeCname<T>
++        constexpr bool IsAfInet6(const auto ai_family) {
++            if constexpr (std::same_as<T, struct ams::socket::ares_addrinfo_node> || std::same_as<T, AddrInfoNodeCname>) {
++                /* NOTE: Keep this in case a nn::socket::AddrInfo equivalent is ever implemented for c-ares. */
++                /* As of 23.0.0 only the ares_addrinfo struct is supported in the serializer. */
++                return ai_family == AF_INET6;
++            } else {
++                return ai_family == AF_INET6;
++            }
++        }
++
++        template<typename T> requires IsAresAddrInfoNode<T>
++        size_t AddrInfoNodeSizeOf(const T *ares_addr_info_node) {
++            size_t rc = 6 * sizeof(u32);
++
++            if (ares_addr_info_node->ai_addr == nullptr) {
++                rc += sizeof(u32);
++            } else if (IsAfInet<T>(ares_addr_info_node->ai_family)) {
++                rc += DNSSerializer::SizeOf(*reinterpret_cast<SockAddrInType<T> *>(ares_addr_info_node->ai_addr));
++            } else if (IsAfInet6<T>(ares_addr_info_node->ai_family)) {
++                rc += DNSSerializer::SizeOf(*reinterpret_cast<SockAddrIn6Type<T> *>(ares_addr_info_node->ai_addr));
++            } else if (ares_addr_info_node->ai_addrlen == 0) {
++                rc += sizeof(u32);
++            } else {
++                rc += ares_addr_info_node->ai_addrlen;
++            }
++
++            if (ares_addr_info_node->ai_next == nullptr) {
++                rc += sizeof(u32);
++            }
++
++            return rc;
++        }
++
++        template<typename T> requires IsAresAddrInfo<T>
++        size_t SizeOfImpl(const T &in) {
++            size_t rc = 0;
++            
++            const T *ares_addr_info = std::addressof(in);
++            for (const struct ams::socket::ares_addrinfo_node *ares_addr_info_node = ares_addr_info->nodes; ares_addr_info_node != nullptr; ares_addr_info_node = ares_addr_info_node->ai_next) {
++                rc += AddrInfoNodeSizeOf(ares_addr_info_node);
++            }
++
++            return rc;
++        }
++        
++        template<typename T> requires IsAresAddrInfoHints<T>
++        size_t SizeOfImpl(const T &) {
++            return 5 * sizeof(u32);
++        }
++
++        template<typename T> requires IsAddrInfoNodeCname<T>
++        ssize_t ToBufferInternalImpl(u8 * const dst, size_t dst_size, const T &addr_info_node_cname) {
++            ssize_t rc = -1;
++            u8 *cur = dst;
++
++            {
++                const u32 value = AresMagic;
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(addr_info_node_cname.node->ai_flags);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(addr_info_node_cname.node->ai_family);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(addr_info_node_cname.node->ai_socktype);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(addr_info_node_cname.node->ai_protocol);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(addr_info_node_cname.node->ai_addrlen);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                if (addr_info_node_cname.node->ai_addr == nullptr || addr_info_node_cname.node->ai_addrlen == 0) {
++                    const u32 value = 0;
++                    if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                        return rc;
++                    }
++                } else if (IsAfInet<T>(addr_info_node_cname.node->ai_family)) {
++                    if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), *reinterpret_cast<SockAddrInType<T> *>(addr_info_node_cname.node->ai_addr))) == -1) {
++                        return rc;
++                    }
++                } else if (IsAfInet6<T>(addr_info_node_cname.node->ai_family)) {
++                    if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), *reinterpret_cast<SockAddrIn6Type<T> *>(addr_info_node_cname.node->ai_addr))) == -1) {
++                        return rc;
++                    }
++                } else {
++                    rc = -1;
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), addr_info_node_cname.ai_canonname)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            if (addr_info_node_cname.node->ai_next == nullptr) {
++                const u32 value = 0;
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            rc = cur - dst;
++            return rc;
++        }
++
++        template<typename T> requires IsAresAddrInfo<T>
++        ssize_t ToBufferImpl(u8 * const dst, size_t dst_size, const T &in) {
++            ssize_t rc = -1;
++            u8 *cur = dst;
++            std::memset(dst, 0, dst_size);
++
++            const size_t required = DNSSerializer::SizeOf(in);
++            if ((rc = DNSSerializer::CheckToBufferArguments(cur, dst_size, required, __LINE__)) == -1) {
++                return rc;
++            }
++            
++            AddrInfoNodeCname addr_info_node_cname;
++            const T *ares_addr_info = std::addressof(in);
++            if (ares_addr_info->cnames != nullptr) {
++                const struct ams::socket::ares_addrinfo_cname *ares_addr_info_cname;
++                for (ares_addr_info_cname = ares_addr_info->cnames; ares_addr_info_cname->next != nullptr; ares_addr_info_cname = ares_addr_info_cname->next) {
++                    /* Do nothing. */
++                }
++                addr_info_node_cname.ai_canonname = ares_addr_info_cname->name;
++            } else {
++                addr_info_node_cname.ai_canonname = ares_addr_info->name;
++            }
++
++            for (struct ams::socket::ares_addrinfo_node *ares_addr_info_node = ares_addr_info->nodes; ares_addr_info_node != nullptr; ares_addr_info_node = ares_addr_info_node->ai_next) {
++                addr_info_node_cname.node = ares_addr_info_node;
++                if ((rc = ToBufferInternalImpl(cur, dst_size, addr_info_node_cname)) == -1) {
++                    return rc;
++                }
++                
++                addr_info_node_cname.ai_canonname = nullptr;
++                cur += rc;
++            }
++            
++            rc = cur - dst;
++            return rc;
++        }
++        
++        template<typename T> requires IsAresAddrInfoHints<T>
++        ssize_t ToBufferImpl(u8 * const dst, size_t dst_size, const T &in) {
++            ssize_t rc = -1;
++            u8 *cur = dst;
++            
++            const size_t required = DNSSerializer::SizeOf(in);
++            if (dst_size < required) {
++                return rc;
++            }
++
++            {
++                const u32 value = AresMagic;
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(in.ai_flags);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(in.ai_family);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(in.ai_socktype);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                const u32 value = static_cast<u32>(in.ai_protocol);
++                if ((rc = DNSSerializer::ToBuffer(cur, dst_size - (cur - dst), value)) == -1) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            return rc;
++        }
++        
++        template<typename T> requires IsAresAddrInfoHints<T>
++        ssize_t FromBufferImpl(T &out, const u8 *src, size_t src_size) {
++            ssize_t rc = 0;
++            const u8 *cur = src;
++
++            const size_t required = DNSSerializer::SizeOf(out);
++            if (src_size < required) {
++                ams::socket::SetLastError(ams::socket::Errno::ENoSpc);
++                rc = -1;
++                return rc;
++            }
++            
++            std::memset(std::addressof(out), 0, sizeof(out));
++
++            u32 tmp_value;
++
++            {
++                if ((rc = DNSSerializer::FromBuffer(tmp_value, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                } else if (tmp_value != AresMagic) {
++                    return rc;
++                }
++                cur += rc;
++            }
++
++            {
++                if ((rc = DNSSerializer::FromBuffer(tmp_value, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                }
++                out.ai_flags = static_cast<decltype(out.ai_flags)>(tmp_value);
++                cur += rc;
++            }
++
++            {
++                if ((rc = DNSSerializer::FromBuffer(tmp_value, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                }
++                out.ai_family = static_cast<decltype(out.ai_family)>(tmp_value);
++                cur += rc;
++            }
++
++            {
++                if ((rc = DNSSerializer::FromBuffer(tmp_value, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                }
++                out.ai_socktype = static_cast<decltype(out.ai_socktype)>(tmp_value);
++                cur += rc;
++            }
++
++            {
++                if ((rc = DNSSerializer::FromBuffer(tmp_value, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                }
++                out.ai_protocol = static_cast<decltype(out.ai_protocol)>(tmp_value);
++                cur += rc;
++            }
++
++            rc = cur - src;
++            return rc;
++        }
++
++    }
++
++    template<>  size_t DNSSerializer::SizeOf(const struct ams::socket::ares_addrinfo &in) {
++        return SizeOfImpl(in);
++    }
++    
++    template<>  size_t DNSSerializer::SizeOf(const struct ams::socket::ares_addrinfo_hints &in) {
++        return SizeOfImpl(in);
++    }
++
++    /* NOTE: DNSSerializer::FromBuffer doesn't exist for ares_addrinfo, only DNSSerializer::ToBuffer does. */
++    /* Official software pairs it with the old addrinfo DNSSerializer::FromBuffer instead. */
++    template<> ssize_t DNSSerializer::ToBuffer(u8 * const dst, size_t dst_size, const struct ams::socket::ares_addrinfo &in) {
++        return ToBufferImpl(dst, dst_size, in);
++    }
++    
++    template<> ssize_t DNSSerializer::ToBuffer(u8 * const dst, size_t dst_size, const struct ams::socket::ares_addrinfo_hints &in) {
++        return ToBufferImpl(dst, dst_size, in);
++    }
++    
++    template<> ssize_t DNSSerializer::FromBuffer(struct ams::socket::ares_addrinfo_hints &out, const u8 *src, size_t src_size) {
++        return FromBufferImpl(out, src, src_size);
++    }
++}
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_hostent.cpp b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_hostent.cpp
+index e62d87d12c..55c0dbfb48 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_hostent.cpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_hostent.cpp
+@@ -55,8 +55,9 @@ namespace ams::mitm::socket::resolver::serializer {
+             rc += DNSSerializer::SizeOf((const char **)(in.h_aliases), dummy);
+             rc += sizeof(u32);
+             rc += sizeof(u32);
+-            rc += DNSSerializer::SizeOf((const InAddrType<T> **)(in.h_addr_list), dummy);
+-
++            if (IsAfInet<T>(in.h_addrtype)) {
++                rc += DNSSerializer::SizeOf((const InAddrType<T> **)(in.h_addr_list), dummy);
++            }
+             return rc;
+         }
+ 
+@@ -150,7 +151,16 @@ namespace ams::mitm::socket::resolver::serializer {
+             cur += rc;
+ 
+             InAddrType<T> **addrs = nullptr;
+-            if ((rc = DNSSerializer::FromBuffer(addrs, cur, src_size - (cur - src))) == -1) {
++            if (IsAfInet<T>(out.h_addrtype)) {
++                if ((rc = DNSSerializer::FromBuffer(addrs, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                }
++            } else if (IsAfInet6<T>(out.h_addrtype)) {
++                if ((rc = DNSSerializer::FromBuffer(addrs, cur, src_size - (cur - src))) == -1) {
++                    return rc;
++                }
++            } else {
++                rc = -1;
+                 return rc;
+             }
+             out.h_addr_list = (char **)addrs;
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_in_addr.cpp b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_in_addr.cpp
+index 564b67f312..765d7a84f8 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_in_addr.cpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_in_addr.cpp
+@@ -159,6 +159,7 @@ namespace ams::mitm::socket::resolver::serializer {
+ 
+             out = static_cast<T **>(ams::socket::impl::Alloc((count + 1) * sizeof(T *)));
+             if (out == nullptr) {
++                ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+                 rc = -1;
+                 return rc;
+             }
+@@ -167,6 +168,7 @@ namespace ams::mitm::socket::resolver::serializer {
+             for (u32 i = 0; i < count; ++i) {
+                 out[i] = static_cast<T *>(ams::socket::impl::Alloc(sizeof(T)));
+                 if (out[i] == nullptr) {
++                    ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+                     rc = -1;
+                     return rc;
+                 }
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_sockaddrin_6.cpp b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_sockaddrin_6.cpp
+index d5271037b7..dc4d0126af 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_sockaddrin_6.cpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_sockaddrin_6.cpp
+@@ -31,7 +31,7 @@ namespace ams::mitm::socket::resolver::serializer {
+             rc += sizeof(u16);
+             rc += sizeof(u16);
+             rc += sizeof(u32);
+-            rc += DNSSerializer::SizeOf(in.sin6_addr);
++            rc += sizeof(in.sin6_addr); /* NOTE: There is no DNSSerializer::SizeOf for in6_addr. */
+             rc += sizeof(u32);
+             return rc;
+         }
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_string.cpp b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_string.cpp
+index 33ff98991d..ae97f2423d 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_string.cpp
++++ b/stratosphere/ams_mitm/source/dns_mitm/serializer/serializer_impls_string.cpp
+@@ -76,6 +76,7 @@ namespace ams::mitm::socket::resolver::serializer {
+ 
+         out = static_cast<char *>(ams::socket::impl::Alloc(len));
+         if (out == nullptr) {
++            ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+             return -1;
+         }
+ 
+@@ -152,6 +153,7 @@ namespace ams::mitm::socket::resolver::serializer {
+ 
+         out = static_cast<char **>(ams::socket::impl::Alloc((count + 1) * sizeof(char *)));
+         if (out == nullptr) {
++            ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+             rc = -1;
+             return rc;
+         }
+@@ -162,6 +164,7 @@ namespace ams::mitm::socket::resolver::serializer {
+             const size_t len = std::strlen(reinterpret_cast<const char *>(cur));
+             out[i] = static_cast<char *>(ams::socket::impl::Alloc(len + 1));
+             if (out[i] == nullptr) {
++                ams::socket::SetLastError(ams::socket::Errno::ENoMem);
+                 rc = -1;
+                 return rc;
+             }
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.c b/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.c
+index cfd3d6107b..01c6a9cd15 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.c
++++ b/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.c
+@@ -95,3 +95,106 @@ Result sfdnsresGetAddrInfoRequestWithOptionsFwd(Service *s, u64 process_id, cons
+     return rc;
+ }
+ 
++Result sfdnsresReportTelemetryFwd(Service *s, u64 process_id, const void *telemetry, size_t telemetry_size, u32 version) {
++    const struct {
++        u32 version;
++        u32 padding;
++        u64 process_id;
++    } in = { version, 0, process_id };
++
++    return serviceMitmDispatchIn(s, 16, in,
++        .buffer_attrs = {
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In
++        },
++        .buffers = {
++            { telemetry, telemetry_size }
++        },
++        .in_send_pid = true,
++        .override_pid = process_id,
++    );
++}
++
++Result sfdnsresQueryAddrInfoRequestWithOptionsFwd(Service *s, u64 process_id, const void *node, size_t node_size, const void *srv, size_t srv_size, const void *hint, size_t hint_size, u32 *out_query_id, u32 fd, u32 options_version, const void *option, size_t option_size, u32 num_options, s32 *out_rv, s32 *out_errno) {
++    const struct {
++        u32 fd;
++        u32 options_version;
++        u32 num_options;
++        u32 padding;
++        u64 process_id;
++    } in = { fd, options_version, num_options, 0, process_id };
++    struct {
++        u32 query_id;
++        s32 rv;
++        s32 errno;
++    } out;
++
++    Result rc = serviceMitmDispatchInOut(s, 100, in, out,
++        .buffer_attrs = {
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In
++        },
++        .buffers = {
++            { node, node_size },
++            { srv, srv_size },
++            { hint, hint_size },
++            { option, option_size }
++        },
++        .in_send_pid = true,
++        .override_pid = process_id,
++    );
++
++    if (R_SUCCEEDED(rc)) {
++        if (out_query_id) *out_query_id = out.query_id;
++        if (out_rv) *out_rv = out.rv;
++        if (out_errno) *out_errno = out.errno;
++    }
++
++    return rc;
++}
++
++Result sfdnsresFetchAddrInfoRequestWithOptionsFwd(Service *s, u64 process_id, u32 query_id, u32 version, void *out_ai, size_t out_ai_size, u32 *out_size, s32 *out_rv, s32 *out_errno) {
++    const struct {
++        u32 query_id;
++        u32 version;
++        u64 process_id;
++    } in = { query_id, version, process_id };
++    struct {
++        u32 size;
++        s32 rv;
++        s32 errno;
++    } out;
++
++    Result rc = serviceMitmDispatchInOut(s, 102, in, out,
++        .buffer_attrs = {
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out
++        },
++        .buffers = {
++            { out_ai, out_ai_size }
++        },
++        .in_send_pid = true,
++        .override_pid = process_id,
++    );
++
++    if (R_SUCCEEDED(rc)) {
++        if (out_size) *out_size = out.size;
++        if (out_rv) *out_rv = out.rv;
++        if (out_errno) *out_errno = out.errno;
++    }
++
++    return rc;
++}
++
++Result sfdnsresCancelQueryFwd(Service *s, u64 process_id, u32 query_id) {
++    const struct {
++        u32 query_id;
++        u32 padding;
++        u64 process_id;
++    } in = { query_id, 0, process_id };
++    
++    return serviceMitmDispatchIn(s, 104, in,
++        .in_send_pid = true,
++        .override_pid = process_id,
++    );
++}
+\ No newline at end of file
+diff --git a/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.h b/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.h
+index 07f3fa94e7..ae38783734 100644
+--- a/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.h
++++ b/stratosphere/ams_mitm/source/dns_mitm/sfdnsres_shim.h
+@@ -16,6 +16,14 @@ Result sfdnsresGetHostByNameRequestWithOptionsFwd(Service *s, u64 process_id, co
+ 
+ Result sfdnsresGetAddrInfoRequestWithOptionsFwd(Service *s, u64 process_id, const void *node, size_t node_size, const void *srv, size_t srv_size, const void *hint, size_t hint_size, void *out_ai, size_t out_ai_size, u32 *out_size, s32 *out_rv, u32 options_version, const void *option, size_t option_size, u32 num_options, s32 *out_host_error, s32 *out_errno);
+ 
++Result sfdnsresReportTelemetryFwd(Service *s, u64 process_id, const void *telemetry, size_t telemetry_size, u32 version);
++
++Result sfdnsresQueryAddrInfoRequestWithOptionsFwd(Service *s, u64 process_id, const void *node, size_t node_size, const void *srv, size_t srv_size, const void *hint, size_t hint_size, u32 *out_query_id, u32 fd, u32 options_version, const void *option, size_t option_size, u32 num_options, s32 *out_rv, s32 *out_errno);
++
++Result sfdnsresFetchAddrInfoRequestWithOptionsFwd(Service *s, u64 process_id, u32 query_id, u32 version, void *out_ai, size_t out_ai_size, u32 *out_size, s32 *out_rv, s32 *out_errno);
++
++Result sfdnsresCancelQueryFwd(Service *s, u64 process_id, u32 query_id);
++
+ #ifdef __cplusplus
+ }
+ #endif
+\ No newline at end of file
