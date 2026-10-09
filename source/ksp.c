@@ -290,7 +290,7 @@ int openpak_ksp_boot_build(const uint8_t *s, size_t n, bool enable, bool emummc,
     for (int i = 0; i < count; ++i) {
         if (!enable && requests(s, l[i])) {
             // Keep any other patch on the line; drop the line if ours was all it asked for.
-            size_t v, t, te;
+            size_t v = l[i].end, t, te;
             key_is(s, l[i], "kip1patch", &v);
             buf_t keep = {0};
             for (size_t a = v; a <= l[i].end;) {
