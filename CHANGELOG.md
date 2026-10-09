@@ -3,6 +3,15 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## Unreleased (Save Data Cloud)
+
+- system: on 23.0.0/23.0.1, selecting OpenPak writes OpenPak's two `[FS:…]` sections to hekate's
+  `bootloader/patches.ini` and adds `kip1patch=openpak_ksp` to the launch entries that boot this
+  MMC, so FS verifies key-seed packages against OpenPak's modulus (docs/save-data-cloud.md).
+  Nintendo removes both. Other sections and lines are kept byte for byte, and files OpenPak cannot
+  edit are left alone with a note. A log is written to `/switch/openpak/system/save-data-cloud.log`,
+  and `/switch/openpak/save-data-cloud.dry-run` makes it log only. Not yet run on hardware.
+
 ## v0.3.20 — 2026-10-07 (firmware 23's system services reach OpenPak)
 
 - system: dns.mitm now redirects the lookups firmware 23's system services make. 23.0.0 moved them to
