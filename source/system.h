@@ -5,6 +5,9 @@
 
 bool openpak_system_install(char *err, int errlen);
 bool openpak_system_remove(char *err, int errlen);
+// What the last install/remove did not do for Save Data Cloud (never a failure of either); "" if nothing.
+// The details are in /switch/openpak/system/save-data-cloud.log.
+const char *openpak_ksp_note(void);
 bool openpak_exosphere_blank(bool blank, char *err, int errlen);   // blank_prodinfo_emummc := blank, backup kept
 // A Loader KIP in /atmosphere/kips that fusee would load ahead of OpenPak's: its file name.
 bool openpak_loader_override(char *name, int len);
