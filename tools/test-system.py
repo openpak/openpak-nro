@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     lib=tmp/'system.so'
     stub=tmp/'root.c';stub.write_text('const char *openpak_root = "";\n')
     subprocess.run(['cc','-shared','-fPIC','-Wall','-Wextra','-Werror','-DOPENPAK_HOST_TEST',
-                    str(repo/'source/system.c'),str(stub),'-lcrypto','-o',str(lib)],check=True)
+                    str(repo/'source/system.c'),str(repo/'source/ksp.c'),str(stub),'-lcrypto','-o',str(lib)],check=True)
     api=c.CDLL(str(lib));api.openpak_store_replace.restype=c.c_bool
     api.openpak_store_replace.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
     api.openpak_package_build.restype=c.c_bool
@@ -367,3 +367,88 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         assert alternate.stat().st_ino==stat.st_ino and boot.read_bytes()==boot_expected
         assert api.openpak_system_remove(err,256),err.value
         print('PASS: upgrade from the ams_mitm-only package (enabled, disabled, interrupted), foreign package kept, reapply, disable')
+    # Save Data Cloud (docs/save-data-cloud.md): enable writes patches.ini's two [FS:…] sections and
+    # asks for them from the entries that boot this MMC; Nintendo takes both away; others' bytes stay.
+    if a.package3:
+        fw=(c.c_char*16).in_dll(api,'openpak_test_firmware');emu=c.c_bool.in_dll(api,'openpak_test_emummc')
+        api.openpak_ksp_note.restype=c.c_char_p
+        root=tmp/'ksp';state=root/'switch/openpak/system';state.mkdir(parents=True)
+        (state/'source.bdf').write_bytes(source)
+        package=root/'atmosphere/package3';package.parent.mkdir();package.write_bytes(original)
+        boot=root/'bootloader/hekate_ipl.ini';boot.parent.mkdir()
+        ipl=(b'[config]\nautoboot=1\n\n[CFW (emuMMC)]\npkg3=atmosphere/package3\nkip1patch=nogc\nemummcforce=1\n\n'
+             b'[CFW (sysMMC)]\npkg3=atmosphere/package3\nemummc_force_disable=1\n\n[Stock]\nfss0=atmosphere/package3\nstock=1\nemummc_force_disable=1\n')
+        boot.write_bytes(ipl)
+        (root/'emuMMC').mkdir();(root/'emuMMC/emummc.ini').write_bytes(b'[emummc]\nenabled=1\nsector=0x70db8000\n')
+        patches=root/'bootloader/patches.ini';user=b'# sigpatches\n[FS:34383ee799926340]\n.nosigchk=0:0x194A0:0x4:BA090094,E0031F2A\n'
+        patches.write_bytes(user)
+        log=state/'save-data-cloud.log';dry=root/'switch/openpak/save-data-cloud.dry-run'
+        root_bytes=str(root).encode();c.c_char_p.in_dll(api,'openpak_root').value=root_bytes
+        err=c.create_string_buffer(256)
+        openpak=boot_transform(ipl)
+        def asks(entry):
+            return b'[%s]\npkg3=atmosphere/package3-openpak\nkip1patch=openpak_ksp\n'%entry in boot.read_bytes()
+        # Another firmware: OpenPak goes on, Save Data Cloud does not, and says why.
+        fw.value=b'22.5.0'
+        assert api.openpak_system_install(err,256),err.value
+        assert b'needs firmware 23.0.0 or 23.0.1' in api.openpak_ksp_note() and patches.read_bytes()==user
+        assert boot.read_bytes()==openpak and b'kip1patch=openpak_ksp' not in boot.read_bytes()
+        assert api.openpak_system_remove(err,256) and boot.read_bytes()==ipl
+        # 23.0.1 on emuMMC: their sigpatches kept, ours after them; only the emuMMC entry asks.
+        fw.value=b'23.0.1';emu.value=True
+        assert api.openpak_system_install(err,256),err.value
+        assert api.openpak_ksp_note()==b'',api.openpak_ksp_note()
+        p=patches.read_bytes()
+        assert p.startswith(user) and p.count(b'.openpak_ksp=1:0x')==8 and b'[FS:fdaf163288e10805]\n' in p
+        assert asks(b'CFW (emuMMC)') and not asks(b'CFW (sysMMC)') and boot.read_bytes().count(b'openpak_ksp')==1
+        assert (state/'boot.managed').read_bytes()==boot.read_bytes() and (state/'patches.ini.previous').read_bytes()==user
+        assert b'+ kip1patch=openpak_ksp' in log.read_bytes() and b'+ [FS:34383ee799926340]' in log.read_bytes()
+        st=patches.stat()
+        assert api.openpak_system_install(err,256),err.value                   # re-apply: nothing rewritten
+        assert patches.stat().st_mtime_ns==st.st_mtime_ns and asks(b'CFW (emuMMC)')
+        # Nintendo: the request goes with boot.original, then our sections; their file byte for byte.
+        assert api.openpak_system_remove(err,256),err.value
+        assert boot.read_bytes()==ipl and patches.read_bytes()==user and api.openpak_ksp_note()==b''
+        # The same on sysMMC: only the sysMMC CFW entry, never the stock one.
+        emu.value=False
+        assert api.openpak_system_install(err,256),err.value
+        assert asks(b'CFW (sysMMC)') and not asks(b'CFW (emuMMC)') and boot.read_bytes().count(b'openpak_ksp')==1
+        assert api.openpak_system_remove(err,256) and boot.read_bytes()==ipl and patches.read_bytes()==user
+        # No patches.ini: created, and deleted again by Nintendo.
+        emu.value=True;patches.unlink()
+        assert api.openpak_system_install(err,256) and patches.read_bytes().startswith(b'# OpenPak Save Data Cloud')
+        assert (state/'patches.absent').exists()
+        assert api.openpak_system_remove(err,256) and not patches.exists() and not (state/'patches.absent').exists()
+        # Somebody edits patches.ini while it is on: their edit stays when ours goes.
+        assert api.openpak_system_install(err,256)
+        patches.write_bytes(b'[Loader:0123456789abcdef]\n.x=0:0x0:0x1:00,01\n'+patches.read_bytes())
+        assert api.openpak_system_remove(err,256) and patches.read_bytes()==b'[Loader:0123456789abcdef]\n.x=0:0x0:0x1:00,01\n'
+        # hekate_ipl.ini changed by somebody: the remove is refused, and patches.ini, still asked for, stays.
+        patches.write_bytes(user)
+        assert api.openpak_system_install(err,256)
+        boot.write_bytes(boot.read_bytes()+b'# user edit\n');before=patches.read_bytes()
+        assert not api.openpak_system_remove(err,256) and patches.read_bytes()==before
+        boot.write_bytes((state/'boot.managed').read_bytes())
+        assert api.openpak_system_remove(err,256) and patches.read_bytes()==user
+        # A patches.ini OpenPak cannot edit: left alone, no request, OpenPak still goes on.
+        patches.write_bytes(b'[FS:34383ee799926340]\n\0\n')
+        assert api.openpak_system_install(err,256),err.value
+        assert b'not one OpenPak can edit' in api.openpak_ksp_note() and patches.read_bytes()==b'[FS:34383ee799926340]\n\0\n'
+        assert b'openpak_ksp' not in boot.read_bytes()
+        assert api.openpak_system_remove(err,256);patches.write_bytes(user)
+        # No hekate entry boots this MMC: nothing written.
+        (root/'emuMMC/emummc.ini').write_bytes(b'[emummc]\nenabled=0\n')
+        assert api.openpak_system_install(err,256) and b'no hekate entry boots this emuMMC' in api.openpak_ksp_note()
+        assert patches.read_bytes()==user and b'openpak_ksp' not in boot.read_bytes()
+        assert api.openpak_system_remove(err,256)
+        (root/'emuMMC/emummc.ini').write_bytes(b'[emummc]\nenabled=1\n')
+        # Dry run: the log says what would change, nothing does.
+        dry.write_bytes(b'')
+        assert api.openpak_system_install(err,256) and b'dry run' in api.openpak_ksp_note()
+        assert patches.read_bytes()==user and b'openpak_ksp' not in boot.read_bytes()
+        text=log.read_bytes()
+        assert b'(dry run, nothing written)' in text and b'+ kip1patch=openpak_ksp' in text and text.count(b'+ .openpak_ksp=')==8
+        assert api.openpak_system_remove(err,256);dry.unlink()
+        fw.value=b''
+        print('PASS: Save Data Cloud: 23.0.x only, entries of this MMC only (never stock), sigpatches kept, re-apply '
+              'idempotent, Nintendo removes both, absent file deleted again, foreign/unreadable files kept, dry run')

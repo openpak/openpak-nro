@@ -94,6 +94,8 @@ static char loader_note[160];
 #define ALBUM_NOTE "Album now opens the Album - hold R on Album for the Homebrew Menu"
 static char album_note[160];
 static bool album_ok;
+// Why Save Data Cloud was not set up (or kept), after either; "" when it went through.
+static char ksp_note[160];
 
 static void draw(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
                  bool offering) {
@@ -125,6 +127,7 @@ static void draw(const char *ip, bool on, int sel, const char *status, bool conf
     if (openpak_policy_problem()[0]) printf("  \x1b[33m%s\x1b[0m\n\n", openpak_policy_problem());
     if (loader_note[0]) printf("  \x1b[31m%s\x1b[0m\n\n", loader_note);
     if (album_note[0]) printf("  %s%s\x1b[0m\n\n", album_ok ? "" : "\x1b[33m", album_note);
+    if (ksp_note[0]) printf("  \x1b[33m%s\x1b[0m\n\n", ksp_note);
     if (asking)
         printf("  \x1b[33m%s\x1b[0m\n\n  [A] send   [B] don't send   [X] always   [Y] never\n", status);
     else if (offering)
@@ -297,6 +300,7 @@ int main(int argc, char **argv) {
                 album_ok = want_openpak ? openpak_album_install(album_note, sizeof(album_note))
                                         : openpak_album_remove(album_note, sizeof(album_note));
                 if (album_ok) snprintf(album_note, sizeof(album_note), "%s", want_openpak ? ALBUM_NOTE : "");
+                snprintf(ksp_note, sizeof(ksp_note), "%s", openpak_ksp_note());
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
                 openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "system.h"
 #include "hosts.h"
+#include "ksp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 static void hash(uint8_t out[32], const void *data, size_t n) { SHA256(data, n, out); }
 #else
 #include <switch.h>
+#include "installtrust.h"
 #define ASSET "romfs:/"
 static void hash(uint8_t out[32], const void *data, size_t n) { sha256CalculateHash(out, data, n); }
 #endif
@@ -26,6 +28,12 @@ static void hash(uint8_t out[32], const void *data, size_t n) { sha256CalculateH
 #define BOOT "/bootloader/hekate_ipl.ini"
 #define OPENPAK_PACKAGE "/atmosphere/package3-openpak"
 #define EXOSPHERE "/exosphere.ini"
+#define PATCHES "/bootloader/patches.ini"
+#define EMUMMC_INI "/emuMMC/emummc.ini"
+#define KSP_LOG STATE "/save-data-cloud.log"
+#define KSP_PREVIOUS STATE "/patches.ini.previous"
+#define KSP_ABSENT STATE "/patches.absent"
+#define KSP_DRY_RUN "/switch/openpak/save-data-cloud.dry-run"
 
 static uint32_t get32(const uint8_t *p) {
     return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24;
@@ -357,6 +365,133 @@ bool openpak_exosphere_blank(bool blank,char *err,int errlen) {
     free(b);free(out);return ok;
 }
 
+// Save Data Cloud (docs/save-data-cloud.md): hekate swaps the FS key-seed-package key at boot from
+// bootloader/patches.ini, for the launch entries that ask with kip1patch=openpak_ksp. patches.ini is
+// written before an entry asks and cleaned only once none does: hekate stops at boot ("Failed to
+// apply") when an entry asks for a set the file does not hold. hekate_ipl.ini's request rides in the
+// managed boot entry, so selecting Nintendo restores it with the rest of boot.original.
+// /switch/openpak/save-data-cloud.dry-run on the card: work it all out, log it, write nothing.
+#ifdef OPENPAK_HOST_TEST
+char openpak_test_firmware[16]="";     // the host test's console
+bool openpak_test_emummc=true;
+static void firmware(char *v,int n) { snprintf(v,n,"%s",openpak_test_firmware); }
+static int on_emummc(void) { return openpak_test_emummc; }
+#else
+static void firmware(char *v,int n) { openpak_firmware_supported(v,n); }
+// Exosphère's ExosphereEmummcType (spl config 65007): non-zero while this boot runs on emuMMC.
+static int on_emummc(void) {
+    u64 v=0;
+    if(R_FAILED(splInitialize()))return -1;
+    Result rc=splGetConfig((SplConfigItem)65007,&v);
+    splExit();
+    return R_SUCCEEDED(rc)?v!=0:-1;
+}
+#endif
+static char ksp_note[160];
+const char *openpak_ksp_note(void) { return ksp_note; }
+
+#define KSP_LOG_SIZE 16384
+static void ksp_describe(char *log,const char *file,const uint8_t *a,size_t an,const uint8_t *b,size_t bn) {
+    size_t at=strlen(log);
+    if(at+64>=KSP_LOG_SIZE)return;
+    at+=snprintf(log+at,KSP_LOG_SIZE-at,"%s:\n",file);
+    size_t w=openpak_ksp_describe(a,an,b,bn,log+at,KSP_LOG_SIZE-at);
+    if(!w)snprintf(log+at,KSP_LOG_SIZE-at,"  (no change)\n");
+}
+static void ksp_finish(char *log) {
+    size_t at=strlen(log);
+    snprintf(log+at,KSP_LOG_SIZE-at,"result: %s\n",ksp_note[0]?ksp_note:"done");
+    write_file(KSP_LOG,log,strlen(log));
+    free(log);
+}
+
+// Enable: patches.ini gets the two [FS:…] sections, *boot (the managed hekate_ipl.ini about to be
+// written) the request. True when both are so.
+static bool ksp_install(uint8_t **boot,size_t *boot_size) {
+    char fw[32]="";firmware(fw,sizeof(fw));
+    char *log=calloc(1,KSP_LOG_SIZE);if(!log) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: out of memory.");return false; }
+    bool dry=exists(KSP_DRY_RUN),ok=false;
+    int emummc=on_emummc();
+    size_t en=0,pn=0,nn=0,bn=0;
+    uint8_t *emu=read_file(EMUMMC_INI,&en,false),*patches=NULL,*new_patches=NULL,*new_boot=NULL;
+    bool emu_enabled=openpak_ksp_emummc_enabled(emu,en);
+    snprintf(log,KSP_LOG_SIZE,"OpenPak Save Data Cloud: enable%s\nfirmware %s, running on %s, emuMMC/emummc.ini %s\n",
+             dry?" (dry run, nothing written)":"",fw[0]?fw:"unknown",emummc<0?"unknown":emummc?"emuMMC":"sysMMC",
+             emu_enabled?"enabled":"disabled or absent");
+    if(!openpak_ksp_firmware(fw)) {
+        snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud needs firmware " OPENPAK_KSP_FIRMWARE "; this console runs %s.",fw[0]?fw:"another");
+        goto done;
+    }
+    if(emummc<0) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud not set up: could not tell emuMMC from sysMMC.");goto done; }
+    int r=openpak_ksp_boot_build(*boot,*boot_size,true,emummc,emu_enabled,&new_boot,&bn);
+    if(r<0) {
+        snprintf(ksp_note,sizeof(ksp_note),r==-2?"Save Data Cloud: out of memory.":
+                 "Save Data Cloud not set up: no hekate entry boots this %s through Atmosphere.",emummc?"emuMMC":"sysMMC");
+        goto done;
+    }
+    if(!recover_file(PATCHES)) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud not set up: could not recover patches.ini.");goto done; }
+    bool present=exists(PATCHES);
+    patches=present?read_file(PATCHES,&pn,false):NULL;
+    if(present && !patches) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud not set up: could not read bootloader/patches.ini.");goto done; }
+    int p=openpak_ksp_patches_build(patches,pn,true,&new_patches,&nn);
+    if(p<0) {
+        snprintf(ksp_note,sizeof(ksp_note),p==-2?"Save Data Cloud: out of memory.":
+                 "Save Data Cloud not set up: bootloader/patches.ini is not one OpenPak can edit; left as it is.");
+        goto done;
+    }
+    ksp_describe(log,"bootloader/patches.ini",patches,pn,p?new_patches:patches,p?nn:pn);
+    ksp_describe(log,"bootloader/hekate_ipl.ini",*boot,*boot_size,r?new_boot:*boot,r?bn:*boot_size);
+    if(dry) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud dry run: see /switch/openpak/system/save-data-cloud.log");goto done; }
+    if(p) {
+        // The file as it was before this edit; no file: deleting ours later deletes the file.
+        if(present?!write_file(KSP_PREVIOUS,patches,pn):!write_file(KSP_ABSENT,"",0)) {
+            snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud not set up: could not back up patches.ini.");goto done;
+        }
+        if(!replace_file(PATCHES,new_patches,nn)) {
+            snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud not set up: could not write bootloader/patches.ini.");goto done;
+        }
+    }
+    if(r) { free(*boot);*boot=new_boot;*boot_size=bn;new_boot=NULL; }
+    ok=true;
+done:
+    ksp_finish(log);
+    free(emu);free(patches);free(new_patches);free(new_boot);
+    return ok;
+}
+
+// Nintendo: OpenPak's sections leave patches.ini, once hekate_ipl.ini no longer asks for them.
+static void ksp_remove(void) {
+    if(!recover_file(PATCHES)) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: could not recover patches.ini.");return; }
+    size_t pn=0,nn=0,bn=0,xn=0;
+    uint8_t *patches=read_file(PATCHES,&pn,false),*new_patches=NULL,*boot=NULL,*x=NULL;
+    int p=patches?openpak_ksp_patches_build(patches,pn,false,&new_patches,&nn):0;
+    if(!p) { free(patches);if(!exists(PATCHES))erase(KSP_ABSENT);return; }   // nothing of ours there
+    char *log=calloc(1,KSP_LOG_SIZE);
+    if(!log) { free(patches);free(new_patches);return; }
+    bool dry=exists(KSP_DRY_RUN);
+    snprintf(log,KSP_LOG_SIZE,"OpenPak Save Data Cloud: remove%s\n",dry?" (dry run, nothing written)":"");
+    if(p<0) {
+        snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: bootloader/patches.ini is not one OpenPak can edit; left as it is.");
+        goto done;
+    }
+    ksp_describe(log,"bootloader/patches.ini",patches,pn,new_patches,nn);
+    boot=read_file(BOOT,&bn,false);
+    if(boot && openpak_ksp_boot_build(boot,bn,false,false,false,&x,&xn)!=0) {
+        snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud kept: bootloader/hekate_ipl.ini still asks for " OPENPAK_KSP_PATCH ".");
+        goto done;
+    }
+    if(dry) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud dry run: see /switch/openpak/system/save-data-cloud.log");goto done; }
+    if(!write_file(KSP_PREVIOUS,patches,pn) ||
+       !(nn==0 && exists(KSP_ABSENT)?erase(PATCHES):replace_file(PATCHES,new_patches,nn))) {
+        snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: could not update bootloader/patches.ini.");
+        goto done;
+    }
+    erase(KSP_ABSENT);
+done:
+    ksp_finish(log);
+    free(patches);free(new_patches);free(boot);free(x);
+}
+
 // The packages earlier builds wrote. They are OpenPak's own, so a rebuild may replace them.
 // 2: from Atmosphere 1.11.2, ams_mitm alone (0.3.1-0.3.14) or with store trust (0.3.15-0.3.17).
 // 1: from Atmosphere 1.12.0 without the firmware-23 dns.mitm fix (0.3.18-0.3.19).
@@ -370,6 +505,7 @@ int openpak_package_outdated(void) {
 }
 
 bool openpak_system_install(char *err,int errlen) {
+    ksp_note[0]='\0';
     if(!recover_file(BOOT) || !recover_file(STORE) || !recover_file(OPENPAK_PACKAGE)) {
         snprintf(err,errlen,"Could not recover interrupted system setup");return false;
     }
@@ -416,6 +552,8 @@ bool openpak_system_install(char *err,int errlen) {
        !write_file(STATE "/certificate.absent","",0))goto done;
     if(!backup(BOOT,STATE "/boot.original",STATE "/boot.absent") ||
        !backup(STORE,STATE "/certificate.original",STATE "/certificate.absent"))goto done;
+    // Never fails the switch: without it only Save Data Cloud is missing, and ksp_note says why.
+    ksp_install(&new_boot,&new_bn);
     failure="Could not save OpenPak boot package";
     if(!replace_file(OPENPAK_PACKAGE,base,n))goto done;
     failure="Could not record system setup";
@@ -461,7 +599,7 @@ static bool managed_or_original(const char *p,const char *managed,const char *or
     size_t n=0;uint8_t *b=read_file(p,&n,false);if(!b)return false;
     bool ok=same_file(managed,b,n)||same_file(original,b,n);free(b);return ok;
 }
-bool openpak_system_remove(char *err,int errlen) {
+static bool system_remove(char *err,int errlen) {
     if(!recover_file(BOOT) || !recover_file(STORE)) {
         snprintf(err,errlen,"Could not recover interrupted system setup");return false;
     }
@@ -480,6 +618,13 @@ bool openpak_system_remove(char *err,int errlen) {
     const char *files[]={"boot.original","boot.absent","boot.managed","certificate.original","certificate.absent","certificate.managed"};
     for(size_t i=0;i<sizeof(files)/sizeof(files[0]);++i) { char p[256];snprintf(p,sizeof(p),STATE "/%s",files[i]);if(!erase(p)) { snprintf(err,errlen,"Restored system; could not remove backup metadata");return false; } }
     return openpak_exosphere_blank(true,err,errlen);
+}
+bool openpak_system_remove(char *err,int errlen) {
+    ksp_note[0]='\0';
+    if(!system_remove(err,errlen))return false;
+    // After hekate_ipl.ini is back: hekate must never be asked for a set patches.ini no longer has.
+    ksp_remove();
+    return true;
 }
 
 // /atmosphere/config/override_config.ini, [hbl_config]: which programs Atmosphère's Loader swaps
