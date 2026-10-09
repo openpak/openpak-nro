@@ -136,6 +136,22 @@ kept, by enable and disable alike. The Loader rereads the file at every launch, 
 takes effect at once; after disable Atmosphère keeps what it last read until the reboot
 offered there.
 
+## Save Data Cloud (unreleased)
+
+On firmware **23.0.0/23.0.1**, selecting OpenPak also lets the console's FS accept save-transfer
+key-seed packages signed by OpenPak's saves server: hekate swaps FS's KeySeedPackage-signing
+modulus (`.rodata` `0x5450`, 256 bytes) for OpenPak's at every boot. Two edits do it:
+OpenPak's `[FS:34383ee799926340]`/`[FS:fdaf163288e10805]` sections in
+`bootloader/patches.ini` (appended; everything else in the file kept byte for byte), and
+`kip1patch=openpak_ksp` in the hekate launch entries that boot the MMC the NRO runs on (never a
+`stock=1` entry). hekate checks the retail bytes before writing and skips any other FS, and this
+works under stock Atmosphère too. Selecting **Nintendo** removes both. Every change is logged to
+`/switch/openpak/system/save-data-cloud.log`; an empty `/switch/openpak/save-data-cloud.dry-run`
+file makes it log only. Select Nintendo before a firmware update, or hekate stops at
+*Failed to apply 'openpak_ksp'* (POWER continues). See
+[`docs/save-data-cloud.md`](docs/save-data-cloud.md) for the derivation, the safety checks and
+recovery from a PC card reader.
+
 ## Updating itself
 
 At launch, while the network is up for the ceiling fetch, the tool asks GitHub for the newest
