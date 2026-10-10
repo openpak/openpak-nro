@@ -88,8 +88,12 @@ end writes nothing.
   None of this ever makes the OpenPak/Nintendo switch fail.
 - **Log and dry run.** Every enable, and every remove that has something to do, writes
   `/switch/openpak/system/save-data-cloud.log`. It records the firmware, the MMC, and the lines
-  added and removed in both files. With an empty file at `/switch/openpak/save-data-cloud.dry-run`
-  on the card, OpenPak works everything out and logs it, but writes neither file.
+  added and removed in both files, and the boot entries that ask for `openpak_ksp`. In a dry run,
+  OpenPak works everything out and logs it, but writes neither file, and the NRO says so on screen.
+  A build compiled with `OPENPAK_KSP_DRY_RUN=1` (the default, and what v0.3.21 ships) always runs
+  dry, so the first release rehearses on hardware with nothing on the card changing; a build with
+  `-DOPENPAK_KSP_DRY_RUN=0` writes, and an empty file at `/switch/openpak/save-data-cloud.dry-run`
+  still makes that build run dry.
 
 ### The retail bytes: shipped, not read from the console
 

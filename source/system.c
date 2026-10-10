@@ -370,7 +370,23 @@ bool openpak_exosphere_blank(bool blank,char *err,int errlen) {
 // written before an entry asks and cleaned only once none does: hekate stops at boot ("Failed to
 // apply") when an entry asks for a set the file does not hold. hekate_ipl.ini's request rides in the
 // managed boot entry, so selecting Nintendo restores it with the rest of boot.original.
-// /switch/openpak/save-data-cloud.dry-run on the card: work it all out, log it, write nothing.
+// A dry run works it all out, logs it and writes nothing. OPENPAK_KSP_DRY_RUN (default 1) makes every
+// run of this build a dry run, so the first release only rehearses on hardware; a build with
+// -DOPENPAK_KSP_DRY_RUN=0 writes, and /switch/openpak/save-data-cloud.dry-run on the card still
+// makes that one rehearse.
+#ifndef OPENPAK_KSP_DRY_RUN
+#define OPENPAK_KSP_DRY_RUN 1
+#endif
+#define KSP_DRY_NOTE "Save Data Cloud ran as a dry run, nothing written: /switch/openpak/system/save-data-cloud.log"
+#define KSP_DRY_STOPPED "Save Data Cloud dry run stopped early, nothing written: /switch/openpak/system/save-data-cloud.log"
+// Why this run is a dry run, or NULL when it writes.
+static const char *ksp_dry(void) {
+    return OPENPAK_KSP_DRY_RUN ? "this build" : exists(KSP_DRY_RUN) ? KSP_DRY_RUN : NULL;
+}
+static void ksp_dry_header(char *log,size_t len,const char *what,const char *dry) {
+    if(dry)snprintf(log,len,"OpenPak Save Data Cloud: %s (dry run, set by %s; nothing written)\n",what,dry);
+    else snprintf(log,len,"OpenPak Save Data Cloud: %s\n",what);
+}
 #ifdef OPENPAK_HOST_TEST
 char openpak_test_firmware[16]="";     // the host test's console
 bool openpak_test_emummc=true;
@@ -398,11 +414,36 @@ static void ksp_describe(char *log,const char *file,const uint8_t *a,size_t an,c
     size_t w=openpak_ksp_describe(a,an,b,bn,log+at,KSP_LOG_SIZE-at);
     if(!w)snprintf(log+at,KSP_LOG_SIZE-at,"  (no change)\n");
 }
-static void ksp_finish(char *log) {
+static bool ksp_asks(const uint8_t *s,size_t n) {   // a kip1patch= line naming openpak_ksp
+    size_t k=strlen(OPENPAK_KSP_PATCH);
+    if(n<=10 || memcmp(s,"kip1patch=",10))return false;
+    for(size_t i=10;i+k<=n;++i) if(!strncasecmp((const char *)s+i,OPENPAK_KSP_PATCH,k))return true;
+    return false;
+}
+// The launch entries of hekate_ipl.ini that ask for openpak_ksp, by their [section] line.
+static void ksp_entries(char *log,const uint8_t *b,size_t n) {
+    size_t at=strlen(log),head=0,head_len=0;
+    int found=0;
+    for(size_t i=0;i<n;) {
+        const uint8_t *nl=memchr(b+i,'\n',n-i);
+        size_t e=nl?(size_t)(nl-b):n,end=e;
+        if(end>i && b[end-1]=='\r')--end;
+        if(end>i && b[i]=='[') { head=i;head_len=end-i; }
+        else if(head_len && ksp_asks(b+i,end-i)) {
+            at+=snprintf(log+at,KSP_LOG_SIZE-at,"%s%.*s",found++?", ":"boot entries asking for " OPENPAK_KSP_PATCH ": ",(int)head_len,(const char *)b+head);
+            if(at>=KSP_LOG_SIZE)return;
+        }
+        i=e+1;
+    }
+    snprintf(log+at,KSP_LOG_SIZE-at,"%s\n",found?"":"boot entries asking for " OPENPAK_KSP_PATCH ": none");
+}
+// The log gets the reason; in a dry run the screen only says it was one and where the log is.
+static void ksp_finish(char *log,const char *dry) {
     size_t at=strlen(log);
     snprintf(log+at,KSP_LOG_SIZE-at,"result: %s\n",ksp_note[0]?ksp_note:"done");
     write_file(KSP_LOG,log,strlen(log));
     free(log);
+    if(dry && strcmp(ksp_note,KSP_DRY_NOTE))snprintf(ksp_note,sizeof(ksp_note),KSP_DRY_STOPPED);
 }
 
 // Enable: patches.ini gets the two [FS:…] sections, *boot (the managed hekate_ipl.ini about to be
@@ -410,14 +451,16 @@ static void ksp_finish(char *log) {
 static bool ksp_install(uint8_t **boot,size_t *boot_size) {
     char fw[32]="";firmware(fw,sizeof(fw));
     char *log=calloc(1,KSP_LOG_SIZE);if(!log) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: out of memory.");return false; }
-    bool dry=exists(KSP_DRY_RUN),ok=false;
+    const char *dry=ksp_dry();
+    bool ok=false;
     int emummc=on_emummc();
     size_t en=0,pn=0,nn=0,bn=0;
     uint8_t *emu=read_file(EMUMMC_INI,&en,false),*patches=NULL,*new_patches=NULL,*new_boot=NULL;
     bool emu_enabled=openpak_ksp_emummc_enabled(emu,en);
-    snprintf(log,KSP_LOG_SIZE,"OpenPak Save Data Cloud: enable%s\nfirmware %s, running on %s, emuMMC/emummc.ini %s\n",
-             dry?" (dry run, nothing written)":"",fw[0]?fw:"unknown",emummc<0?"unknown":emummc?"emuMMC":"sysMMC",
-             emu_enabled?"enabled":"disabled or absent");
+    ksp_dry_header(log,KSP_LOG_SIZE,"enable",dry);
+    size_t at=strlen(log);
+    snprintf(log+at,KSP_LOG_SIZE-at,"firmware %s, running on %s, emuMMC/emummc.ini %s\n",
+             fw[0]?fw:"unknown",emummc<0?"unknown":emummc?"emuMMC":"sysMMC",emu_enabled?"enabled":"disabled or absent");
     if(!openpak_ksp_firmware(fw)) {
         snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud needs firmware " OPENPAK_KSP_FIRMWARE "; this console runs %s.",fw[0]?fw:"another");
         goto done;
@@ -441,7 +484,8 @@ static bool ksp_install(uint8_t **boot,size_t *boot_size) {
     }
     ksp_describe(log,"bootloader/patches.ini",patches,pn,p?new_patches:patches,p?nn:pn);
     ksp_describe(log,"bootloader/hekate_ipl.ini",*boot,*boot_size,r?new_boot:*boot,r?bn:*boot_size);
-    if(dry) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud dry run: see /switch/openpak/system/save-data-cloud.log");goto done; }
+    ksp_entries(log,r?new_boot:*boot,r?bn:*boot_size);
+    if(dry) { snprintf(ksp_note,sizeof(ksp_note),KSP_DRY_NOTE);goto done; }
     if(p) {
         // The file as it was before this edit; no file: deleting ours later deletes the file.
         if(present?!write_file(KSP_PREVIOUS,patches,pn):!write_file(KSP_ABSENT,"",0)) {
@@ -454,7 +498,7 @@ static bool ksp_install(uint8_t **boot,size_t *boot_size) {
     if(r) { free(*boot);*boot=new_boot;*boot_size=bn;new_boot=NULL; }
     ok=true;
 done:
-    ksp_finish(log);
+    ksp_finish(log,dry);
     free(emu);free(patches);free(new_patches);free(new_boot);
     return ok;
 }
@@ -468,8 +512,8 @@ static void ksp_remove(void) {
     if(!p) { free(patches);if(!exists(PATCHES))erase(KSP_ABSENT);return; }   // nothing of ours there
     char *log=calloc(1,KSP_LOG_SIZE);
     if(!log) { free(patches);free(new_patches);return; }
-    bool dry=exists(KSP_DRY_RUN);
-    snprintf(log,KSP_LOG_SIZE,"OpenPak Save Data Cloud: remove%s\n",dry?" (dry run, nothing written)":"");
+    const char *dry=ksp_dry();
+    ksp_dry_header(log,KSP_LOG_SIZE,"remove",dry);
     if(p<0) {
         snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: bootloader/patches.ini is not one OpenPak can edit; left as it is.");
         goto done;
@@ -480,7 +524,7 @@ static void ksp_remove(void) {
         snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud kept: bootloader/hekate_ipl.ini still asks for " OPENPAK_KSP_PATCH ".");
         goto done;
     }
-    if(dry) { snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud dry run: see /switch/openpak/system/save-data-cloud.log");goto done; }
+    if(dry) { snprintf(ksp_note,sizeof(ksp_note),KSP_DRY_NOTE);goto done; }
     if(!write_file(KSP_PREVIOUS,patches,pn) ||
        !(nn==0 && exists(KSP_ABSENT)?erase(PATCHES):replace_file(PATCHES,new_patches,nn))) {
         snprintf(ksp_note,sizeof(ksp_note),"Save Data Cloud: could not update bootloader/patches.ini.");
@@ -488,7 +532,7 @@ static void ksp_remove(void) {
     }
     erase(KSP_ABSENT);
 done:
-    ksp_finish(log);
+    ksp_finish(log,dry);
     free(patches);free(new_patches);free(boot);free(x);
 }
 

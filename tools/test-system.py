@@ -36,18 +36,24 @@ PREVIOUS_SHA='cdb45bb91119991404bb3b08a5a6e3e738abd80b99cd1b19ae78be62ce730703'
 STORE_SHA='175f94de55aa4cf1f704cd110c4339617df0a339537033502b9bce9cde2e031f'
 with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     tmp=Path(directory)
-    lib=tmp/'system.so'
     stub=tmp/'root.c';stub.write_text('const char *openpak_root = "";\n')
-    subprocess.run(['cc','-shared','-fPIC','-Wall','-Wextra','-Werror','-DOPENPAK_HOST_TEST',
-                    str(repo/'source/system.c'),str(repo/'source/ksp.c'),str(stub),'-lcrypto','-o',str(lib)],check=True)
-    api=c.CDLL(str(lib));api.openpak_store_replace.restype=c.c_bool
+    def load(name,*defines):
+        lib=tmp/name
+        subprocess.run(['cc','-shared','-fPIC','-Wall','-Wextra','-Werror','-DOPENPAK_HOST_TEST',*defines,
+                        str(repo/'source/system.c'),str(repo/'source/ksp.c'),str(stub),'-lcrypto','-o',str(lib)],check=True)
+        api=c.CDLL(str(lib))
+        api.openpak_system_install.restype=api.openpak_system_remove.restype=c.c_bool
+        api.openpak_system_install.argtypes=api.openpak_system_remove.argtypes=[c.c_char_p,c.c_int]
+        api.openpak_ksp_note.restype=c.c_char_p
+        return api
+    # The build as released (Save Data Cloud only rehearses unless OPENPAK_KSP_DRY_RUN=0), and one that writes.
+    api=load('system.so');writing=load('system-write.so','-DOPENPAK_KSP_DRY_RUN=0')
+    api.openpak_store_replace.restype=c.c_bool
     api.openpak_store_replace.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
     api.openpak_package_build.restype=c.c_bool
     api.openpak_package_build.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t]
     api.openpak_boot_build.restype=c.c_bool
     api.openpak_boot_build.argtypes=[c.c_void_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
-    api.openpak_system_install.restype=api.openpak_system_remove.restype=c.c_bool
-    api.openpak_system_install.argtypes=api.openpak_system_remove.argtypes=[c.c_char_p,c.c_int]
     libc=c.CDLL(None);libc.free.argtypes=[c.c_void_p]
     source=struct.pack('<II',0x546c7373,2)+struct.pack('<IIII',1,1,4,32)+struct.pack('<IIII',1033,1,4,36)+b'keepold!'
     ca=b'new certificate'
@@ -369,9 +375,10 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         print('PASS: upgrade from the ams_mitm-only package (enabled, disabled, interrupted), foreign package kept, reapply, disable')
     # Save Data Cloud (docs/save-data-cloud.md): enable writes patches.ini's two [FS:…] sections and
     # asks for them from the entries that boot this MMC; Nintendo takes both away; others' bytes stay.
+    # These run on a build with OPENPAK_KSP_DRY_RUN=0; the released default follows.
     if a.package3:
+        released,api=api,writing
         fw=(c.c_char*16).in_dll(api,'openpak_test_firmware');emu=c.c_bool.in_dll(api,'openpak_test_emummc')
-        api.openpak_ksp_note.restype=c.c_char_p
         root=tmp/'ksp';state=root/'switch/openpak/system';state.mkdir(parents=True)
         (state/'source.bdf').write_bytes(source)
         package=root/'atmosphere/package3';package.parent.mkdir();package.write_bytes(original)
@@ -447,8 +454,38 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         assert api.openpak_system_install(err,256) and b'dry run' in api.openpak_ksp_note()
         assert patches.read_bytes()==user and b'openpak_ksp' not in boot.read_bytes()
         text=log.read_bytes()
-        assert b'(dry run, nothing written)' in text and b'+ kip1patch=openpak_ksp' in text and text.count(b'+ .openpak_ksp=')==8
+        assert b'(dry run, set by /switch/openpak/save-data-cloud.dry-run; nothing written)' in text and b'+ kip1patch=openpak_ksp' in text and text.count(b'+ .openpak_ksp=')==8
         assert api.openpak_system_remove(err,256);dry.unlink()
         fw.value=b''
         print('PASS: Save Data Cloud: 23.0.x only, entries of this MMC only (never stock), sigpatches kept, re-apply '
               'idempotent, Nintendo removes both, absent file deleted again, foreign/unreadable files kept, dry run')
+        # The build as released: every run is a dry run, with or without the file. The log names
+        # both FS sections and the entry; the screen note says where the log is; nothing is written.
+        api=released
+        rfw=(c.c_char*16).in_dll(api,'openpak_test_firmware');remu=c.c_bool.in_dll(api,'openpak_test_emummc')
+        c.c_char_p.in_dll(api,'openpak_root').value=root_bytes
+        # Stopped before the files (another firmware): the screen still says dry run, the log says why.
+        rfw.value=b'22.5.0';remu.value=True
+        assert api.openpak_system_install(err,256),err.value
+        assert api.openpak_ksp_note()==b'Save Data Cloud dry run stopped early, nothing written: /switch/openpak/system/save-data-cloud.log'
+        assert b'result: Save Data Cloud needs firmware 23.0.0 or 23.0.1; this console runs 22.5.0.' in log.read_bytes()
+        assert patches.read_bytes()==user and boot.read_bytes()==openpak
+        assert api.openpak_system_remove(err,256) and boot.read_bytes()==ipl
+        rfw.value=b'23.0.1'
+        for with_file in (False,True):
+            if with_file:dry.write_bytes(b'')
+            for leftover in (log,state/'patches.ini.previous',state/'patches.absent'):leftover.unlink(missing_ok=True)
+            assert api.openpak_system_install(err,256),err.value
+            assert api.openpak_ksp_note()==b'Save Data Cloud ran as a dry run, nothing written: /switch/openpak/system/save-data-cloud.log'
+            assert patches.read_bytes()==user and b'openpak_ksp' not in boot.read_bytes() and boot.read_bytes()==openpak
+            assert not (state/'patches.ini.previous').exists() and not (state/'patches.absent').exists()
+            text=log.read_bytes()
+            assert text.startswith(b'OpenPak Save Data Cloud: enable (dry run, set by this build; nothing written)\n'),text
+            assert b'firmware 23.0.1, running on emuMMC' in text and text.count(b'+ .openpak_ksp=')==8
+            assert b'+ [FS:34383ee799926340]' in text and b'+ [FS:fdaf163288e10805]' in text
+            assert b'+ kip1patch=openpak_ksp' in text and b'boot entries asking for openpak_ksp: [CFW (emuMMC)]\n' in text
+            assert api.openpak_system_remove(err,256),err.value
+            assert boot.read_bytes()==ipl and patches.read_bytes()==user
+        dry.unlink();rfw.value=b''
+        print('PASS: Save Data Cloud as released: dry run by default (file or not), log names both FS sections and the entry, '
+              'nothing written, an early stop still says dry run')

@@ -78,17 +78,19 @@ clean:
 	@rm -rf $(BUILD) $(TARGET).nro $(TARGET).elf $(TARGET).nacp
 
 # Runs on a PC, not the console: the toggle logic with a temp SD root.
+# The test binaries go to $TMPDIR when it is set (CI and the workspace point it off the /tmp RAM disk).
+TESTBIN ?= $(or $(TMPDIR),/tmp)
 test:
-	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_hosts_test source/hosts.c source/policy.c source/ceiling.c source/ed25519.c \
-		source/ca.c source/hosts_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && /tmp/openpak_hosts_test
-	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -o /tmp/openpak_ceiling_test source/hosts.c source/policy.c source/ceiling.c \
-		source/ed25519.c source/ceiling_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && /tmp/openpak_ceiling_test
-	@cc -DOPENPAK_HOST_TEST -o /tmp/openpak_it_test source/installtrust.c source/installtrust_test.c && /tmp/openpak_it_test
-	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -Werror -o /tmp/openpak_update_test source/update.c source/update_test.c \
-		&& /tmp/openpak_update_test
-	@cc -Wall -Wextra -o /tmp/openpak_report_test source/report.c source/report_test.c \
-		$(shell pkg-config --cflags --libs json-c) && /tmp/openpak_report_test
-	@cc -Wall -Wextra -Werror -o /tmp/openpak_ksp_test source/ksp.c source/ksp_test.c -lcrypto && /tmp/openpak_ksp_test
+	@cc -DOPENPAK_HOST_TEST -o $(TESTBIN)/openpak_hosts_test source/hosts.c source/policy.c source/ceiling.c source/ed25519.c \
+		source/ca.c source/hosts_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && $(TESTBIN)/openpak_hosts_test
+	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -o $(TESTBIN)/openpak_ceiling_test source/hosts.c source/policy.c source/ceiling.c \
+		source/ed25519.c source/ceiling_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && $(TESTBIN)/openpak_ceiling_test
+	@cc -DOPENPAK_HOST_TEST -o $(TESTBIN)/openpak_it_test source/installtrust.c source/installtrust_test.c && $(TESTBIN)/openpak_it_test
+	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -Werror -o $(TESTBIN)/openpak_update_test source/update.c source/update_test.c \
+		&& $(TESTBIN)/openpak_update_test
+	@cc -Wall -Wextra -o $(TESTBIN)/openpak_report_test source/report.c source/report_test.c \
+		$(shell pkg-config --cflags --libs json-c) && $(TESTBIN)/openpak_report_test
+	@cc -Wall -Wextra -Werror -o $(TESTBIN)/openpak_ksp_test source/ksp.c source/ksp_test.c -lcrypto && $(TESTBIN)/openpak_ksp_test
 	@python3 tools/test-patches.py
 	@python3 tools/test-system.py
 

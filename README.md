@@ -146,8 +146,9 @@ OpenPak's `[FS:34383ee799926340]`/`[FS:fdaf163288e10805]` sections in
 `kip1patch=openpak_ksp` in the hekate launch entries that boot the MMC the NRO runs on (never a
 `stock=1` entry). hekate checks the retail bytes before writing and skips any other FS, and this
 works under stock Atmosphère too. Selecting **Nintendo** removes both. Every change is logged to
-`/switch/openpak/system/save-data-cloud.log`; an empty `/switch/openpak/save-data-cloud.dry-run`
-file makes it log only. Select Nintendo before a firmware update, or hekate stops at
+`/switch/openpak/system/save-data-cloud.log`. v0.3.21 is built dry (`OPENPAK_KSP_DRY_RUN=1`, the
+default): it only logs what it would write and the screen says so; in a build with
+`OPENPAK_KSP_DRY_RUN=0`, an empty `/switch/openpak/save-data-cloud.dry-run` file makes it log only. Select Nintendo before a firmware update, or hekate stops at
 *Failed to apply 'openpak_ksp'* (POWER continues). See
 [`docs/save-data-cloud.md`](docs/save-data-cloud.md) for the derivation, the safety checks and
 recovery from a PC card reader.
