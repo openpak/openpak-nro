@@ -25,6 +25,7 @@ title turns out to need once something of ours does answer.
 | `login.live.com` | Minecraft Dungeons | 2026-08-31 | |
 | `launchercontent.mojang.com` | Minecraft Dungeons | 2026-08-31 | |
 | `vortex.data.microsoft.com` | Minecraft Dungeons | 2026-08-31 | |
+| `3f284.playfabapi.com` | We Were Here — Microsoft PlayFab (title `3F284`) | 2026-10-10 | Multiplayer sweep: resolved to a Microsoft address and opened TLS to it. Family `.playfabapi.com` is claimed from signed ceiling v5 on; nx-baas answers every call with PlayFab's own ServiceUnavailable (503, errorCode 1123) until a PlayFab service exists. Minecraft Dungeons also uses PlayFab. |
 
 ## Serving one
 
