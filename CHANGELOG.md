@@ -3,7 +3,7 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased (Save Data Cloud)
+## v0.3.21 — 2026-10-10 (Save Data Cloud, dry run)
 
 - system: on 23.0.0/23.0.1, selecting OpenPak writes OpenPak's two `[FS:…]` sections to hekate's
   `bootloader/patches.ini` and adds `kip1patch=openpak_ksp` to the launch entries that boot this
@@ -11,6 +11,13 @@ of truth; this file is the readable summary.
   Nintendo removes both. Other sections and lines are kept byte for byte, and files OpenPak cannot
   edit are left alone with a note. A log is written to `/switch/openpak/system/save-data-cloud.log`,
   and `/switch/openpak/save-data-cloud.dry-run` makes it log only. Not yet run on hardware.
+- system: this release runs Save Data Cloud as a **dry run** (compile-time `OPENPAK_KSP_DRY_RUN=1`,
+  the default): selecting OpenPak logs what it would write to `bootloader/patches.ini` and
+  `bootloader/hekate_ipl.ini`, including the boot entries that would ask for `openpak_ksp`, and
+  writes neither. The screen says so after selecting OpenPak (also when it stopped early; the log
+  says why) and names the log. A later build with `OPENPAK_KSP_DRY_RUN=0` writes; the dry-run file
+  still overrides it there.
+- make test: the test binaries go to `$TMPDIR` when it is set.
 
 ## v0.3.20 — 2026-10-07 (firmware 23's system services reach OpenPak)
 
