@@ -3,6 +3,14 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.22 — 2026-10-11 (Save Data Cloud applies)
+
+- system: selecting OpenPak now installs the Save Data Cloud FS trust patch on firmware
+  23.0.0/23.0.1 by default. v0.3.21 only logged a dry run, leaving consoles unable to accept
+  OpenPak's key-seed packages. Update, reapply OpenPak, then reboot through hekate to activate it.
+- tests: exercise installation, reapply and Nintendo removal on the default build. The SD-card
+  dry-run marker and explicit `OPENPAK_KSP_DRY_RUN=1` rehearsal builds remain supported and tested.
+
 ## v0.3.21 — 2026-10-10 (Save Data Cloud, dry run)
 
 - system: on 23.0.0/23.0.1, selecting OpenPak writes OpenPak's two `[FS:…]` sections to hekate's

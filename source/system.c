@@ -370,12 +370,10 @@ bool openpak_exosphere_blank(bool blank,char *err,int errlen) {
 // written before an entry asks and cleaned only once none does: hekate stops at boot ("Failed to
 // apply") when an entry asks for a set the file does not hold. hekate_ipl.ini's request rides in the
 // managed boot entry, so selecting Nintendo restores it with the rest of boot.original.
-// A dry run works it all out, logs it and writes nothing. OPENPAK_KSP_DRY_RUN (default 1) makes every
-// run of this build a dry run, so the first release only rehearses on hardware; a build with
-// -DOPENPAK_KSP_DRY_RUN=0 writes, and /switch/openpak/save-data-cloud.dry-run on the card still
-// makes that one rehearse.
+// Apply by default. A dry run works it all out, logs it and writes nothing: either compile with
+// -DOPENPAK_KSP_DRY_RUN=1 or put /switch/openpak/save-data-cloud.dry-run on the card to rehearse.
 #ifndef OPENPAK_KSP_DRY_RUN
-#define OPENPAK_KSP_DRY_RUN 1
+#define OPENPAK_KSP_DRY_RUN 0
 #endif
 #define KSP_DRY_NOTE "Save Data Cloud ran as a dry run, nothing written: /switch/openpak/system/save-data-cloud.log"
 #define KSP_DRY_STOPPED "Save Data Cloud dry run stopped early, nothing written: /switch/openpak/system/save-data-cloud.log"

@@ -1,7 +1,8 @@
 # Save Data Cloud — the console's FS trusts OpenPak's key-seed packages
 
-*Firmware 23.0.0 / 23.0.1, hekate (checked against v6.5.4). Not released yet, and not yet run on
-hardware. The research behind it is `scratch/harbor-eden/research/olsc-re/fs-transfer.md` §6–§8.*
+*Firmware 23.0.0 / 23.0.1, hekate (checked against v6.5.4). v0.3.21 rehearsed only; v0.3.22
+applies the patch. Host installation tests pass; patched boot and save restore still need
+hardware validation. The research is `scratch/harbor-eden/research/olsc-re/fs-transfer.md` §6–§8.*
 
 ## Why a console patch
 
@@ -90,10 +91,10 @@ end writes nothing.
   `/switch/openpak/system/save-data-cloud.log`. It records the firmware, the MMC, and the lines
   added and removed in both files, and the boot entries that ask for `openpak_ksp`. In a dry run,
   OpenPak works everything out and logs it, but writes neither file, and the NRO says so on screen.
-  A build compiled with `OPENPAK_KSP_DRY_RUN=1` (the default, and what v0.3.21 ships) always runs
-  dry, so the first release rehearses on hardware with nothing on the card changing; a build with
-  `-DOPENPAK_KSP_DRY_RUN=0` writes, and an empty file at `/switch/openpak/save-data-cloud.dry-run`
-  still makes that build run dry.
+  Starting with v0.3.22, the default build writes the patch and boot request. Reapply OpenPak after
+  updating from v0.3.21, which always ran dry, then reboot through the matching hekate entry.
+  An empty file at `/switch/openpak/save-data-cloud.dry-run` opts in to a dry run. A build compiled
+  with `OPENPAK_KSP_DRY_RUN=1` also always runs dry, regardless of that file.
 
 ### The retail bytes: shipped, not read from the console
 

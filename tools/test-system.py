@@ -46,8 +46,8 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         api.openpak_system_install.argtypes=api.openpak_system_remove.argtypes=[c.c_char_p,c.c_int]
         api.openpak_ksp_note.restype=c.c_char_p
         return api
-    # The build as released (Save Data Cloud only rehearses unless OPENPAK_KSP_DRY_RUN=0), and one that writes.
-    api=load('system.so');writing=load('system-write.so','-DOPENPAK_KSP_DRY_RUN=0')
+    # The default build applies Save Data Cloud; explicitly opt in to a rehearsal build.
+    api=load('system.so');rehearsal=load('system-dry.so','-DOPENPAK_KSP_DRY_RUN=1')
     api.openpak_store_replace.restype=c.c_bool
     api.openpak_store_replace.argtypes=[c.c_void_p,c.c_size_t,c.c_void_p,c.c_size_t,c.POINTER(c.c_void_p),c.POINTER(c.c_size_t)]
     api.openpak_package_build.restype=c.c_bool
@@ -375,9 +375,8 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         print('PASS: upgrade from the ams_mitm-only package (enabled, disabled, interrupted), foreign package kept, reapply, disable')
     # Save Data Cloud (docs/save-data-cloud.md): enable writes patches.ini's two [FS:…] sections and
     # asks for them from the entries that boot this MMC; Nintendo takes both away; others' bytes stay.
-    # These run on a build with OPENPAK_KSP_DRY_RUN=0; the released default follows.
+    # Exercise the default build, without a compile-time override.
     if a.package3:
-        released,api=api,writing
         fw=(c.c_char*16).in_dll(api,'openpak_test_firmware');emu=c.c_bool.in_dll(api,'openpak_test_emummc')
         root=tmp/'ksp';state=root/'switch/openpak/system';state.mkdir(parents=True)
         (state/'source.bdf').write_bytes(source)
@@ -459,9 +458,9 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
         fw.value=b''
         print('PASS: Save Data Cloud: 23.0.x only, entries of this MMC only (never stock), sigpatches kept, re-apply '
               'idempotent, Nintendo removes both, absent file deleted again, foreign/unreadable files kept, dry run')
-        # The build as released: every run is a dry run, with or without the file. The log names
+        # An explicit rehearsal build: every run is a dry run, with or without the file. The log names
         # both FS sections and the entry; the screen note says where the log is; nothing is written.
-        api=released
+        api=rehearsal
         rfw=(c.c_char*16).in_dll(api,'openpak_test_firmware');remu=c.c_bool.in_dll(api,'openpak_test_emummc')
         c.c_char_p.in_dll(api,'openpak_root').value=root_bytes
         # Stopped before the files (another firmware): the screen still says dry run, the log says why.
@@ -487,5 +486,5 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
             assert api.openpak_system_remove(err,256),err.value
             assert boot.read_bytes()==ipl and patches.read_bytes()==user
         dry.unlink();rfw.value=b''
-        print('PASS: Save Data Cloud as released: dry run by default (file or not), log names both FS sections and the entry, '
+        print('PASS: Save Data Cloud rehearsal build: explicit dry run (file or not), log names both FS sections and the entry, '
               'nothing written, an early stop still says dry run')
