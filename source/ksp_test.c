@@ -94,7 +94,7 @@ int main(void) {
 
     // The two moduli: pinned, distinct, both a plausible RSA-2048 modulus (top bit set, odd).
     sha_hex(openpak_ksp_retail, 256, hexd);
-    assert(!strcmp(hexd, "fa7d578d1eb5ef2fb9f934c19cf5d6155a754c69db7d7c88394c5dadb9be831a"));
+    assert(!strcmp(hexd, "890787079a7630de1555a806d8502e02771286f0836b844cc752bfaa544dc0e6"));
     sha_hex(openpak_ksp_openpak, 256, hexd);
     assert(!strcmp(hexd, "fc53edd13cffb435f3b5e66c915b04260637b411f103429c1a0cd4d4eaf601be"));
     assert(memcmp(openpak_ksp_retail, openpak_ksp_openpak, 256));
@@ -108,8 +108,8 @@ int main(void) {
 
     // --- patches.ini: add to nothing.
     assert(patches(NULL, true, &o) == 1);
-    assert(strstr(o, "[FS:34383ee799926340]\n.openpak_ksp=1:0x5450:0x40:AAE5704D"));
-    assert(strstr(o, "[FS:fdaf163288e10805]\n.openpak_ksp=1:0x5450:0x40:AAE5704D"));
+    assert(strstr(o, "[FS:34383ee799926340]\n.openpak_ksp=1:0x5550:0x40:A79287C2"));
+    assert(strstr(o, "[FS:fdaf163288e10805]\n.openpak_ksp=1:0x5550:0x40:A79287C2"));
     int lines = 0;
     for (char *p = o, *e; *p; p = e + 1) {
         e = strchr(p, '\n'); assert(e);
@@ -123,15 +123,15 @@ int main(void) {
     for (int h = 0; h < 2; ++h) {
         uint8_t *sec[3];
         for (int i = 0; i < 3; ++i) { sec[i] = malloc(0x10000); memset(sec[i], 0x5a + i, 0x10000); }
-        memcpy(sec[1] + 0x5450, openpak_ksp_retail, 256);
+        memcpy(sec[1] + 0x5550, openpak_ksp_retail, 256);
         uint8_t *before = malloc(0x10000); memcpy(before, sec[1], 0x10000);
         const char *hash = h ? "fdaf163288e10805" : "34383ee799926340";
         assert(hekate_apply(block_copy, hash, "openpak_ksp", sec) == 4);
-        assert(!memcmp(sec[1] + 0x5450, openpak_ksp_openpak, 256));
-        assert(!memcmp(sec[1], before, 0x5450) && !memcmp(sec[1] + 0x5550, before + 0x5550, 0x10000 - 0x5550));
+        assert(!memcmp(sec[1] + 0x5550, openpak_ksp_openpak, 256));
+        assert(!memcmp(sec[1], before, 0x5550) && !memcmp(sec[1] + 0x5650, before + 0x5650, 0x10000 - 0x5650));
         for (int i = 0; i < 3; i += 2) for (int j = 0; j < 0x10000; ++j) assert(sec[i][j] == 0x5a + i);
         assert(hekate_apply(block_copy, hash, "openpak_ksp", sec) == 4);   // already patched: accepted
-        memset(sec[1] + 0x5490, 0, 4);                                      // neither: hekate stops
+        memset(sec[1] + 0x5590, 0, 4);                                      // neither: hekate stops
         assert(hekate_apply(block_copy, hash, "openpak_ksp", sec) == -1);
         assert(hekate_apply(block_copy, "0011223344556677", "openpak_ksp", sec) == 0);   // other FS: skipped
         for (int i = 0; i < 3; ++i) free(sec[i]);
@@ -141,6 +141,20 @@ int main(void) {
     assert(patches(o, true, &o2) == 0); free(o2);
     assert(patches(o, false, &o2) == 1 && !strcmp(o2, "")); free(o2);
     assert(patches("", false, &o2) == 0); free(o2);
+    free(o);
+
+    // Upgrade v0.3.22: replace the old development-slot requests, without
+    // retaining a second patch of the wrong key on the next boot.
+    const char *legacy =
+        "# OpenPak Save Data Cloud legacy\r\n"
+        "[FS:34383ee799926340]\r\n"
+        ".openpak_ksp=1:0x5450:0x4:AAE5704D,B9F3EDE7\r\n"
+        "[FS:fdaf163288e10805]\r\n"
+        ".openpak_ksp=1:0x5450:0x4:AAE5704D,B9F3EDE7\r\n";
+    assert(patches(legacy, true, &o) == 1);
+    assert(!strstr(o, "0x5450") && strstr(o, "0x5550:0x40:A79287C2"));
+    assert(patches(o, true, &o2) == 0); free(o2);
+    assert(patches(o, false, &o2) == 1 && !strcmp(o2, "")); free(o2);
     free(o);
 
     // --- patches.ini: somebody's sigpatches for the same FS, another KIP, comments, CRLF.
@@ -161,11 +175,11 @@ int main(void) {
     {
         uint8_t *sec[3];
         for (int i = 0; i < 3; ++i) sec[i] = calloc(1, 0x20000);
-        memcpy(sec[1] + 0x5450, openpak_ksp_retail, 256);
+        memcpy(sec[1] + 0x5550, openpak_ksp_retail, 256);
         memcpy(sec[0] + 0x194A0, "\xBA\x09\x00\x94", 4);
         assert(hekate_apply(o, "34383ee799926340", "openpak_ksp", sec) == 4);
         assert(hekate_apply(o, "34383ee799926340", "nosigchk", sec) == 1);
-        assert(!memcmp(sec[1] + 0x5450, openpak_ksp_openpak, 256) && !memcmp(sec[0] + 0x194A0, "\xE0\x03\x1F\x2A", 4));
+        assert(!memcmp(sec[1] + 0x5550, openpak_ksp_openpak, 256) && !memcmp(sec[0] + 0x194A0, "\xE0\x03\x1F\x2A", 4));
         for (int i = 0; i < 3; ++i) free(sec[i]);
     }
     // A user who wrote under our last header after we did keeps the header and those lines.
@@ -329,15 +343,15 @@ int main(void) {
         for (int i = 0; i < 3; ++i) memcpy(&size[i], bin + 0x20 + i * 0x10 + 4, 4);
         assert(bn >= 0x100u + size[0] + size[1] + size[2]);
         uint8_t *sec[3] = {bin + 0x100, bin + 0x100 + size[0], bin + 0x100 + size[0] + size[1]};
-        assert(!memcmp(sec[1] + 0x5450, openpak_ksp_retail, 256));     // the src bytes are the KIP's
+        assert(!memcmp(sec[1] + 0x5550, openpak_ksp_retail, 256));     // the src bytes are the KIP's
         uint8_t *copy = malloc(bn); memcpy(copy, bin, bn);
         assert(hekate_apply(block_copy, fw[h][1], "openpak_ksp", sec) == 4);
         size_t changed = 0;
         for (size_t i = 0; i < bn; ++i) changed += bin[i] != copy[i];
-        assert(!memcmp(sec[1] + 0x5450, openpak_ksp_openpak, 256));
-        assert(!memcmp(bin, copy, 0x100 + size[0] + 0x5450) &&
-               !memcmp(bin + 0x100 + size[0] + 0x5550, copy + 0x100 + size[0] + 0x5550, bn - (0x100 + size[0] + 0x5550)));
-        printf("ksp: FS %s: KIP id matches, src = the KIP's bytes, hekate-applied: %zu bytes changed, all inside ro 0x5450+0x100\n",
+        assert(!memcmp(sec[1] + 0x5550, openpak_ksp_openpak, 256));
+        assert(!memcmp(bin, copy, 0x100 + size[0] + 0x5550) &&
+               !memcmp(bin + 0x100 + size[0] + 0x5650, copy + 0x100 + size[0] + 0x5650, bn - (0x100 + size[0] + 0x5650)));
+        printf("ksp: FS %s: KIP id matches, src = the KIP's bytes, hekate-applied: %zu bytes changed, all inside ro 0x5550+0x100\n",
                fw[h][1], changed);
         free(copy); free(kip); free(bin);
     }

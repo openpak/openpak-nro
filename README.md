@@ -140,7 +140,7 @@ offered there.
 
 On firmware **23.0.0/23.0.1**, selecting OpenPak also lets the console's FS accept save-transfer
 key-seed packages signed by OpenPak's saves server: hekate swaps FS's KeySeedPackage-signing
-modulus (`.rodata` `0x5450`, 256 bytes) for OpenPak's at every boot. Two edits do it:
+modulus (`.rodata` `0x5550`, 256 bytes) for OpenPak's at every boot. Two edits do it:
 OpenPak's `[FS:34383ee799926340]`/`[FS:fdaf163288e10805]` sections in
 `bootloader/patches.ini` (appended; everything else in the file kept byte for byte), and
 `kip1patch=openpak_ksp` in the hekate launch entries that boot the MMC the NRO runs on (never a
@@ -148,6 +148,7 @@ OpenPak's `[FS:34383ee799926340]`/`[FS:fdaf163288e10805]` sections in
 works under stock Atmosphère too. Selecting **Nintendo** removes both. Every change is logged to
 `/switch/openpak/system/save-data-cloud.log`. Starting with v0.3.22, the default build applies
 the patch when selecting OpenPak; reboot through the matching hekate entry to activate it.
+v0.3.23 corrects the retail key slot; update and reapply if using v0.3.22 or earlier.
 An empty `/switch/openpak/save-data-cloud.dry-run` file, or a build compiled with
 `OPENPAK_KSP_DRY_RUN=1`, makes it log only. v0.3.21 always ran dry and needs an update and
 reapply to install the patch. Select Nintendo before a firmware update, or hekate stops at

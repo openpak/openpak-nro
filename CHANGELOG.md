@@ -3,6 +3,16 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.23 — 2026-10-11 (retail Save Data Cloud signing key)
+
+- system: replace the retail FS KeySeedPackage-signing modulus at `.rodata` `0x5550`.
+  v0.3.22 patched the adjacent development modulus: hekate applied it successfully,
+  but retail consoles still rejected server packages with FS result 2-7003. A read-only
+  probe confirmed the original adjacent key in the running retail FS configuration.
+  Update, reapply OpenPak, then reboot through hekate CFW (EMUMMC).
+- tests: apply the corrected patch to both owner-local 23.0.x FS variants and verify
+  that the development slot and all bytes outside the retail modulus stay unchanged.
+
 ## v0.3.22 — 2026-10-11 (Save Data Cloud applies)
 
 - system: selecting OpenPak now installs the Save Data Cloud FS trust patch on firmware

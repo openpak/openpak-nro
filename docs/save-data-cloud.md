@@ -1,8 +1,8 @@
 # Save Data Cloud — the console's FS trusts OpenPak's key-seed packages
 
-*Firmware 23.0.0 / 23.0.1, hekate (checked against v6.5.4). v0.3.21 rehearsed only; v0.3.22
-applies the patch. Host installation tests pass; patched boot and save restore still need
-hardware validation. The research is `scratch/harbor-eden/research/olsc-re/fs-transfer.md` §6–§8.*
+*Firmware 23.0.0 / 23.0.1, hekate (checked against v6.5.4). v0.3.23 corrects
+retail key selection; v0.3.22 installed the patch but targeted the development key.
+Host installation tests pass. Full save restore and upload still need hardware validation.*
 
 ## Why a console patch
 
@@ -16,11 +16,26 @@ patched console, the same trade as BCAT under the News key.
 
 | FS KIP (23.0.x) | hekate / fusée id (KIP SHA-256, first 8 bytes) | modulus vaddr | `.rodata` offset |
 |---|---|---|---|
-| FAT `0100000000000819` | `34383ee799926340` | `0x1e4450` | `0x5450` |
-| exFAT `010000000000081b` | `fdaf163288e10805` | `0x1ef450` | `0x5450` |
+| FAT `0100000000000819` | `34383ee799926340` | `0x1e4550` | `0x5550` |
+| exFAT `010000000000081b` | `fdaf163288e10805` | `0x1ef550` | `0x5550` |
 
 23.0.0 and 23.0.1 ship the same two FS KIPs. Both builds carry byte-identical moduli at that
 offset.
+
+### Hardware verification and the v0.3.23 correction
+
+On 2026-10-11, a retail Switch running 23.0.1 exFAT returned `IsDevelopment=false`
+and `IsRetail=1`. A read-only probe found OpenPak's complete public modulus at the old
+`0x5450` patch location, but `SetKeySeedPackage` returned module 2, description 7003.
+The active FS configuration still held the adjacent original modulus, with selector 1.
+The config-init code selects the second modulus when that selector is set: FAT
+`0x1e4550`, exFAT `0x1ef550`. Our earlier retail/development labels were reversed.
+
+v0.3.23 replaces only this retail modulus. Reapplying removes the previous OpenPak
+patch lines and writes the corrected ones. Rebooting reconstructs FS from its original
+KIP, restoring the development slot and replacing the retail slot. Package encryption,
+RSA-PSS verification and challenge checks remain enabled. The encrypted probe fixture
+verified offline with OpenPak's public key before being submitted to FS.
 
 ## How it reaches the console: hekate's `bootloader/patches.ini`
 
@@ -39,10 +54,10 @@ fs-transfer.md §6.3-interim only covers a standalone fusée boot and is not bui
    # OpenPak Save Data Cloud (openpak.nro): firmware 23.0.x FS trusts OpenPak's save transfer key.
    # OpenPak Save Data Cloud: undo by selecting Nintendo in OpenPak, or delete these lines and every kip1patch=openpak_ksp in bootloader/hekate_ipl.ini.
    [FS:34383ee799926340]
-   .openpak_ksp=1:0x5450:0x40:<retail 0x00-0x3F>,<OpenPak 0x00-0x3F>
-   .openpak_ksp=1:0x5490:0x40:<retail 0x40-0x7F>,<OpenPak 0x40-0x7F>
-   .openpak_ksp=1:0x54D0:0x40:<retail 0x80-0xBF>,<OpenPak 0x80-0xBF>
-   .openpak_ksp=1:0x5510:0x40:<retail 0xC0-0xFF>,<OpenPak 0xC0-0xFF>
+   .openpak_ksp=1:0x5550:0x40:<retail 0x00-0x3F>,<OpenPak 0x00-0x3F>
+   .openpak_ksp=1:0x5590:0x40:<retail 0x40-0x7F>,<OpenPak 0x40-0x7F>
+   .openpak_ksp=1:0x55D0:0x40:<retail 0x80-0xBF>,<OpenPak 0x80-0xBF>
+   .openpak_ksp=1:0x5610:0x40:<retail 0xC0-0xFF>,<OpenPak 0xC0-0xFF>
    [FS:fdaf163288e10805]
    (the same four lines)
    # OpenPak Save Data Cloud ends here.
@@ -111,7 +126,7 @@ end writes nothing.
   constant is pinned by SHA-256 in `source/ksp.c` and `source/ksp_test.c`. When the owner-local
   decrypted 23.0.x FS dumps are in the workspace, `make test` also checks it against both real KIPs
   and applies the block to them the way hekate does: 256 bytes change, all inside `.rodata`
-  0x5450–0x554F.
+  0x5550–0x564F.
 
 OpenPak's modulus (`dst`) is its public key; the saves server holds the private half.
 
