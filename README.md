@@ -136,7 +136,7 @@ kept, by enable and disable alike. The Loader rereads the file at every launch, 
 takes effect at once; after disable Atmosphère keeps what it last read until the reboot
 offered there.
 
-## Save Data Cloud (unreleased)
+## Save Data Cloud
 
 On firmware **23.0.0/23.0.1**, selecting OpenPak also lets the console's FS accept save-transfer
 key-seed packages signed by OpenPak's saves server: hekate swaps FS's KeySeedPackage-signing
@@ -146,9 +146,11 @@ OpenPak's `[FS:34383ee799926340]`/`[FS:fdaf163288e10805]` sections in
 `kip1patch=openpak_ksp` in the hekate launch entries that boot the MMC the NRO runs on (never a
 `stock=1` entry). hekate checks the retail bytes before writing and skips any other FS, and this
 works under stock Atmosphère too. Selecting **Nintendo** removes both. Every change is logged to
-`/switch/openpak/system/save-data-cloud.log`. v0.3.21 is built dry (`OPENPAK_KSP_DRY_RUN=1`, the
-default): it only logs what it would write and the screen says so; in a build with
-`OPENPAK_KSP_DRY_RUN=0`, an empty `/switch/openpak/save-data-cloud.dry-run` file makes it log only. Select Nintendo before a firmware update, or hekate stops at
+`/switch/openpak/system/save-data-cloud.log`. Starting with v0.3.22, the default build applies
+the patch when selecting OpenPak; reboot through the matching hekate entry to activate it.
+An empty `/switch/openpak/save-data-cloud.dry-run` file, or a build compiled with
+`OPENPAK_KSP_DRY_RUN=1`, makes it log only. v0.3.21 always ran dry and needs an update and
+reapply to install the patch. Select Nintendo before a firmware update, or hekate stops at
 *Failed to apply 'openpak_ksp'* (POWER continues). See
 [`docs/save-data-cloud.md`](docs/save-data-cloud.md) for the derivation, the safety checks and
 recovery from a PC card reader.
