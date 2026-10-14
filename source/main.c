@@ -367,7 +367,12 @@ int main(int argc, char **argv) {
                 if (want_openpak) {
                     int bundles = openpak_ca_install(err, sizeof(err));
                     int patches = openpak_patches_install();
-                    // The News module only fetches channels it follows.
+                    // Old Nintendo news and subscriptions go first (backed up, once), then the
+                    // News module is told to follow ours: it only fetches channels it follows.
+                    {
+                        char news_err[128] = "";
+                        openpak_news_reset_once(news_err, sizeof(news_err));
+                    }
                     openpak_news_subscribe();
                     applied = bundles > 0 && patches > 0;
                     if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
