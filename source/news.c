@@ -1,7 +1,10 @@
 #include "news.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <switch.h>
 
 // OpenPak's channels, as served by the topics host. Subscribing is per topic;
@@ -46,6 +49,63 @@ static const char *probe_format(void) {
     return NULL;
 }
 
+// ---- one-time reset of what Nintendo left in the News module ---------------------------------
+//
+// A console that followed Nintendo's channels keeps their records and subscriptions, and once the
+// network is OpenPak's it can no longer list those channels to unfollow them. The reset backs the
+// module's database up to the SD card first (a private archive, never uploaded), and only if that
+// worked clears the stored news and every subscription. It runs once; the marker is the proof.
+#define NEWS_DIR     "/switch/openpak"
+#define NEWS_BACKUPS "/switch/openpak/news-backup"
+#define NEWS_MARKER  "/switch/openpak/news-reset-done"
+#define NEWS_DUMP_CAP (8u << 20)
+
+int openpak_news_reset_once(char *err, size_t errsz) {
+    FILE *m = fopen(NEWS_MARKER, "rb");
+    if (m) { fclose(m); return 0; }
+    if (R_FAILED(newsInitialize(NewsServiceType_Administrator))) {
+        snprintf(err, errsz, "News service unavailable, old news left alone");
+        return -1;
+    }
+    int rc = -1;
+    void *buf = malloc(NEWS_DUMP_CAP);
+    if (!buf) {
+        snprintf(err, errsz, "No memory for the news backup, old news left alone");
+        newsExit();
+        return -1;
+    }
+    u64 out = 0;
+    Result r = newsGetNewsDatabaseDump(buf, NEWS_DUMP_CAP, &out);
+    if (R_FAILED(r) || out >= NEWS_DUMP_CAP) {
+        snprintf(err, errsz, "Could not back up the News database (0x%x), old news left alone", r);
+    } else {
+        char path[160];
+        mkdir(NEWS_DIR, 0777);
+        mkdir(NEWS_BACKUPS, 0777);
+        snprintf(path, sizeof(path), NEWS_BACKUPS "/news-%lld.bin", (long long)time(NULL));
+        FILE *f = fopen(path, "wb");
+        bool saved = f && fwrite(buf, 1, (size_t)out, f) == (size_t)out;
+        if (f && fclose(f) != 0) saved = false;
+        if (!saved) {
+            snprintf(err, errsz, "Could not write the News backup, old news left alone");
+        } else if (R_FAILED(newsClearStorage())) {
+            snprintf(err, errsz, "Backed up, but the News module refused to clear its storage");
+        } else if (R_FAILED(newsClearSubscriptionStatusAll())) {
+            snprintf(err, errsz, "Backed up and cleared, but old subscriptions could not be reset");
+            rc = 1;
+        } else {
+            rc = 1;
+        }
+        if (rc == 1) {
+            FILE *mk = fopen(NEWS_MARKER, "wb");
+            if (mk) { fprintf(mk, "%s\n", path); fclose(mk); }
+        }
+    }
+    free(buf);
+    newsExit();
+    return rc;
+}
+
 int openpak_news_subscribe(void) {
     // news:a carries every permission bit; the restricted services split
     // subscription and reception between them.
@@ -74,7 +134,9 @@ int openpak_news_subscribe(void) {
 void openpak_news_unsubscribe(void) {
     if (R_FAILED(newsInitialize(NewsServiceType_Administrator)))
         return;
-    // Never ClearSubscriptionStatusAll: it would drop Nintendo's channels too.
+    // Never ClearSubscriptionStatusAll here: it would drop Nintendo's channels too. The one-time
+    // openpak_news_reset_once is the exception, and a player who goes back to Nintendo re-follows
+    // their channels in the News applet (the backup is an archive, not something this tool restores).
     // Forget (0) rather than unsubscribe (1): selecting Nintendo is a full revert,
     // so our topics should leave the module's list entirely rather than linger as
     // listed-but-unfollowed entries the player would still see in the News applet.
