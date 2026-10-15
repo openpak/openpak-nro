@@ -1,5 +1,6 @@
 #include "news.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,25 +107,69 @@ int openpak_news_reset_once(char *err, size_t errsz) {
     return rc;
 }
 
+// One line per News call on the SD card, so a channel that never arrives can be told apart from
+// a call the module refused. Best effort: a failed write never changes the outcome.
+static void news_log(const char *fmt, ...) {
+    mkdir(NEWS_DIR, 0777);
+    FILE *f = fopen(NEWS_DIR "/news.log", "ab");
+    if (!f) return;
+    fprintf(f, "%lld ", (long long)time(NULL));
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
+
+// The module appears to take one immediate reception at a time: the first topic fetched and the
+// other three never did when all four were asked back to back. Ask one at a time, give it a
+// moment to start, and ask again if it refused.
+#define RECEIVE_ATTEMPTS 3
+#define RECEIVE_PAUSE_NS 2000000000ull
+
+static void request_reception(const char *filter) {
+    for (int attempt = 1; attempt <= RECEIVE_ATTEMPTS; attempt++) {
+        Result r = newsRequestImmediateReception(filter);
+        news_log("receive %s attempt %d -> 0x%x", filter, attempt, r);
+        svcSleepThread(RECEIVE_PAUSE_NS);
+        if (R_SUCCEEDED(r))
+            return;
+    }
+}
+
 int openpak_news_subscribe(void) {
     // news:a carries every permission bit; the restricted services split
     // subscription and reception between them.
-    if (R_FAILED(newsInitialize(NewsServiceType_Administrator)))
+    Result init = newsInitialize(NewsServiceType_Administrator);
+    if (R_FAILED(init)) {
+        news_log("news:a initialize -> 0x%x", init);
         return 0;
+    }
     int subscribed = 0;
     const char *format = probe_format();
+    if (!format)
+        news_log("subscription filter probe failed; nothing subscribed");
     if (format) {
         for (int i = 0; i < TOPIC_COUNT; i++) {
             char filter[96];
             snprintf(filter, sizeof(filter), format, openpak_topics[i]);
             if (!ours(filter))
                 continue;
-            if (R_SUCCEEDED(newsSetSubscriptionStatus(filter, NEWS_STATUS_SUBSCRIBED)))
+            Result r = newsSetSubscriptionStatus(filter, NEWS_STATUS_SUBSCRIBED);
+            u32 status = 0;
+            Result g = newsGetSubscriptionStatus(filter, &status);
+            news_log("subscribe %s -> 0x%x, status read back 0x%x = %u", filter, r, g, status);
+            if (R_SUCCEEDED(r))
                 subscribed++;
-            // Ask for delivery now rather than waiting for the module's own
-            // schedule. It fails harmlessly before the reboot that makes the
-            // host rules live; the schedule still catches up afterwards.
-            newsRequestImmediateReception(filter);
+        }
+        // Ask for delivery now rather than waiting for the module's own schedule. It fails
+        // harmlessly before the reboot that makes the host rules live; the schedule catches up.
+        for (int i = 0; i < TOPIC_COUNT; i++) {
+            char filter[96];
+            snprintf(filter, sizeof(filter), format, openpak_topics[i]);
+            if (ours(filter))
+                request_reception(filter);
         }
     }
     newsExit();
