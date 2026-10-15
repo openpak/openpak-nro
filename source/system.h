@@ -33,3 +33,12 @@ int openpak_album_build(const uint8_t *source, size_t size, uint8_t **out, size_
 // Never part of Enable/Disable failing: false leaves the file as it is and says why in note.
 bool openpak_album_install(char *note, int len);   // true: the Album opens the Album
 bool openpak_album_remove(char *note, int len);    // true: the file is as it was before enable
+// openpak-fetchd, the boot2 sysmodule that keeps the hosts block current. Call after the hosts files
+// are written (it only edits a block that exists). Never part of Enable/Disable failing: false says
+// why in note. Remove deletes the title folder, every /atmosphere/openpak-fetchd* file and folder and
+// the hosts files' .openpak-prev/.openpak-tmp backups; install is all or nothing.
+bool openpak_fetchd_install(char *note, int len);
+bool openpak_fetchd_remove(char *note, int len);
+// Installed, armed and has completed a cycle (log touched) within 12 hours: the hosts block is kept
+// current without the NRO.
+bool openpak_fetchd_active(void);

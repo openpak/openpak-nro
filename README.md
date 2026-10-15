@@ -156,6 +156,37 @@ reapply to install the patch. Select Nintendo before a firmware update, or hekat
 [`docs/save-data-cloud.md`](docs/save-data-cloud.md) for the derivation, the safety checks and
 recovery from a PC card reader.
 
+## Hosts updater: openpak-fetchd (unreleased)
+
+Selecting **OpenPak** also installs `openpak-fetchd` (source: `console/openpak-fetchd`), a boot2
+sysmodule (title `01FE000000000F00`) that keeps the OpenPak block of `/atmosphere/hosts/default.txt`
+and `emummc.txt` current without opening the NRO: about 20 s after the network is up, then every
+6 h of uptime, it fetches the signed ceiling and the switch profile from openpak.org, rewrites
+only the marked block and tells dns_mitm to reload. Trust is the NRO's: the ceiling must verify
+under the pinned Ed25519 key, its version may never go down (floor = the higher of
+`/atmosphere/openpak-fetchd/ceiling.version` and the NRO's `/switch/openpak/ceiling.version`), a
+host outside the signed families is dropped, and a failed fetch or check changes nothing. It never
+creates a block: the NRO writes the hosts files first (the NRO is authoritative on select), fetchd
+only refreshes what is there, and keeps the previous file as `<file>.openpak-prev`.
+
+Files written on select, in this order, nothing else, and only when `romfs:/system/openpak-fetchd.nsp`
+has the sha256 recorded in `source/fetchd_asset.h` (a fresh install that fails midway is rolled back):
+
+- `/atmosphere/contents/01FE000000000F00/exefs.nsp` (temp file, read back, renamed in);
+- `/atmosphere/contents/01FE000000000F00/flags/boot2.flag` (empty: starts it at boot);
+- `/atmosphere/openpak-fetchd.auto` (empty, last: arms the hosts writes).
+
+Selecting **Nintendo** deletes the title folder, every `/atmosphere/openpak-fetchd*` entry (`.auto`,
+`.write`, `.enable`, `.dry`, `.running`, `.stop`, the log and `.log.1`, the `openpak-fetchd/` state
+folder) and the hosts files' `.openpak-prev`/`.openpak-tmp` backups; afterwards no boot2 module of
+ours exists. A copy still running keeps running until the reboot the tool offers, and may write its
+log or `dry-block.txt` once more before it; it cannot recreate a hosts block. The new binary is
+built by `tools/build-fetchd.sh` (devkitA64, under the build flock), which copies it to
+`romfs/system/openpak-fetchd.nsp` and records its sha256 and the source tree's in
+`source/fetchd_asset.h`; `--check` verifies both. `tools/test-system.py` fails if nsp and header
+disagree. The NRO's "OpenPak updated the redirects, re-apply" notice is not shown while fetchd is
+installed, armed and its log was touched in the last 12 h (it is then keeping the block current).
+
 ## Updating itself
 
 At launch, while the network is up for the ceiling fetch, the tool asks GitHub for the newest
