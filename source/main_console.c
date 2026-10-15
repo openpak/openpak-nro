@@ -9,6 +9,7 @@
 #include "netfetch.h"
 #include "update.h"
 #include "news.h"
+#include "nssettings.h"
 #include "installtrust.h"
 #include "crash.h"
 
@@ -278,6 +279,12 @@ int main(int argc, char **argv) {
                         openpak_news_reset_once(news_err, sizeof(news_err));
                     }
                     openpak_news_subscribe();
+                    // The version-list keys the server's push needs; ns reads them at boot,
+                    // and the reboot offer below covers that. A failure is only logged.
+                    {
+                        char ns_err[128] = "";
+                        openpak_nssettings_ensure(ns_err, sizeof(ns_err));
+                    }
                     applied = bundles > 0 && patches > 0;
                     if (!applied) snprintf(err, sizeof(err), "Could not finish certificate and system setup");
                 } else {
