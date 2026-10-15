@@ -3,6 +3,14 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.25 — 2026-10-15 (News channels all arrive)
+
+- news: after v0.3.24 the console fetched only the first followed channel; asking the News
+  module for immediate reception of four topics back to back left the other three unfetched.
+  Reception is now requested one topic at a time, with a pause and up to three tries, and the
+  subscription status is read back after it is set. Every News call and its result code is
+  appended to `/switch/openpak/news.log`. Select OpenPak again in the tool to re-run it.
+
 ## v0.3.23 — 2026-10-11 (retail Save Data Cloud signing key)
 
 - system: replace the retail FS KeySeedPackage-signing modulus at `.rodata` `0x5550`.
