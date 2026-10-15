@@ -3,6 +3,20 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.26 — 2026-10-15 (version-list push settings)
+
+- system: selecting OpenPak now ensures two Atmosphere settings in
+  `/atmosphere/config/system_settings.ini`, section `[ns.notification]`:
+  `enable_version_list = u8!0x1` and `debug_version_list_waiting_limit = u32!0x0`, so the
+  OpenPak server can tell the console its version list changed (firmware 22.x and 23.x).
+  Only those two keys are touched: an existing value is replaced in place, a missing key is
+  added next to it, a missing section or file is created, and comments, other keys and
+  LF/CRLF line endings stay byte for byte (the other `enable_*` switches stay off). The first
+  change backs the original up to `/switch/openpak/nssettings-backup/`; the outcome goes to
+  `/switch/openpak/nssettings.log`. Takes effect after the reboot the tool already offers.
+- tests: `source/nssettings_test.c` covers the text edit and the file step, including a
+  real console file.
+
 ## v0.3.25 — 2026-10-15 (News channels all arrive)
 
 - news: after v0.3.24 the console fetched only the first followed channel; asking the News

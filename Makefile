@@ -49,7 +49,7 @@ export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
 # hosts_test.c is the host-side check; it must not go into the NRO.
 # One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c ceiling_test.c system_test.c installtrust_test.c report_test.c update_test.c ksp_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
+UI_SKIP  := hosts_test.c ceiling_test.c system_test.c installtrust_test.c report_test.c update_test.c ksp_test.c nssettings_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
 CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
@@ -91,6 +91,9 @@ test:
 	@cc -Wall -Wextra -o $(TESTBIN)/openpak_report_test source/report.c source/report_test.c \
 		$(shell pkg-config --cflags --libs json-c) && $(TESTBIN)/openpak_report_test
 	@cc -Wall -Wextra -Werror -o $(TESTBIN)/openpak_ksp_test source/ksp.c source/ksp_test.c -lcrypto && $(TESTBIN)/openpak_ksp_test
+	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -Werror -o $(TESTBIN)/openpak_nssettings_test source/nssettings.c source/nssettings_test.c \
+		source/hosts.c source/policy.c source/ceiling.c source/ed25519.c source/ca.c \
+		$(shell pkg-config --cflags --libs json-c) -lcrypto && $(TESTBIN)/openpak_nssettings_test
 	@python3 tools/test-patches.py
 	@python3 tools/test-system.py
 
