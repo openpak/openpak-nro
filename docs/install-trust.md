@@ -122,6 +122,21 @@ is one) replaces OpenPak's and store titles stop launching. After a successful e
 looks for one, the way fusee would, and names it in a warning; setup still succeeds and the file
 is never touched.
 
+## Companion: openpak-fetchd, a boot2 hosts updater
+
+Not part of store trust, but delivered the same way, by the same selection. `openpak_fetchd_install`
+(source/system.c) puts `romfs/system/openpak-fetchd.nsp` at
+`/atmosphere/contents/01FE000000000F00/exefs.nsp` with `flags/boot2.flag` and arms it with
+`/atmosphere/openpak-fetchd.auto`. Its NPDM carries no valid ACID signature and a program id in the store range, so it loads only under the store-trust
+Loader above (it ran on a console booting `package3-openpak`; not tried without it).
+Trust model: it carries no secret and no authority of its own. It accepts only a ceiling signed
+by the pinned Ed25519 key, never one whose version is below the highest it or the NRO has
+accepted (one-way rule), drops any host outside the signed families, edits only the marked
+OpenPak block of the hosts files (which must already exist) and keeps `.openpak-prev`. The
+binary must hash to the value in `source/fetchd_asset.h` or the NRO refuses to install it.
+Removal (selecting Nintendo) deletes the title folder, every `/atmosphere/openpak-fetchd*` file
+and folder, and the hosts backups. See the README section "Hosts updater".
+
 ## What was retired
 
 v0.3.7–v0.3.14 carried a "Store installs" step that would copy an FS IPS into

@@ -237,6 +237,85 @@ with tempfile.TemporaryDirectory(prefix='openpak-system-test-') as directory:
     assert api.openpak_album_remove(note,160) and ini.read_bytes()==template and records()==[]
     print('PASS: Album: absent/default/other sections kept, own file re-applied, foreign hbl setup kept and noted, '
           'disable restores bytes or deletes, interrupted writes recovered')
+    # openpak-fetchd (the boot2 hosts updater): installed with the hosts files, removed with nothing left.
+    import os,re,time
+    api.openpak_fetchd_install.restype=api.openpak_fetchd_remove.restype=api.openpak_fetchd_active.restype=c.c_bool
+    api.openpak_fetchd_install.argtypes=api.openpak_fetchd_remove.argtypes=[c.c_char_p,c.c_int]
+    asset=(repo/'romfs/system/openpak-fetchd.nsp').read_bytes()
+    recorded=re.search(r'OPENPAK_FETCHD_SHA256 "([0-9a-f]{64})"',(repo/'source/fetchd_asset.h').read_text()).group(1)
+    assert hashlib.sha256(asset).hexdigest()==recorded,'romfs/system/openpak-fetchd.nsp is not the binary fetchd_asset.h records: run tools/build-fetchd.sh'
+    assert asset[:4]==b'PFS0'
+    froot=tmp/'fetchd';fbytes=str(froot).encode();c.c_char_p.in_dll(api,'openpak_root').value=fbytes
+    atm=froot/'atmosphere';title=atm/'contents/01FE000000000F00'
+    def tree():
+        return sorted(str(p.relative_to(froot)) for p in froot.rglob('*'))
+    installed=['atmosphere','atmosphere/contents','atmosphere/contents/01FE000000000F00','atmosphere/contents/01FE000000000F00/exefs.nsp',
+               'atmosphere/contents/01FE000000000F00/flags','atmosphere/contents/01FE000000000F00/flags/boot2.flag','atmosphere/openpak-fetchd.auto']
+    # A console with its own atmosphere files: they must survive a full install and removal.
+    (atm/'hosts').mkdir(parents=True);(atm/'config').mkdir()
+    (atm/'hosts/default.txt').write_bytes(b'# OpenPak begin\n1.2.3.4 a.example\n# OpenPak end\n');(atm/'config/system_settings.ini').write_bytes(b'[x]\n')
+    (atm/'contents/0100000000000800').mkdir(parents=True);(atm/'contents/0100000000000800/keep').write_bytes(b'k')
+    keep=tree()
+    assert api.openpak_fetchd_remove(note,160) and note.value==b'' and tree()==keep         # nothing there: nothing done
+    os.chdir(repo)
+    assert api.openpak_fetchd_install(note,160),note.value
+    assert note.value==b'' and sorted(set(tree())-set(keep))==installed[2:],sorted(set(tree())-set(keep))
+    assert (title/'exefs.nsp').read_bytes()==asset and (title/'flags/boot2.flag').read_bytes()==b'' and (atm/'openpak-fetchd.auto').exists()
+    assert not any(n.endswith(('.openpak-new','.openpak-previous')) for n in tree())
+    assert (atm/'hosts/default.txt').read_bytes().startswith(b'# OpenPak begin')           # the hosts files are not its to touch
+    st=(title/'exefs.nsp').stat();assert api.openpak_fetchd_install(note,160)                # re-apply: not rewritten
+    assert (title/'exefs.nsp').stat().st_ino==st.st_ino and (title/'exefs.nsp').stat().st_mtime_ns==st.st_mtime_ns
+    # Stale or foreign binary in place: replaced by the recorded one; a stop file would end it at once, so it goes.
+    (title/'exefs.nsp').write_bytes(b'PFS0old');(atm/'openpak-fetchd.stop').write_bytes(b'')
+    assert api.openpak_fetchd_install(note,160) and (title/'exefs.nsp').read_bytes()==asset and not (atm/'openpak-fetchd.stop').exists()
+    # Interrupted replace (power lost between the two renames): recovered, not duplicated.
+    (title/'exefs.nsp').rename(title/'exefs.nsp.openpak-previous')
+    assert api.openpak_fetchd_install(note,160) and (title/'exefs.nsp').read_bytes()==asset and not (title/'exefs.nsp.openpak-previous').exists()
+    # Activity: only an armed install whose log was touched in the last 12 hours counts.
+    log=atm/'openpak-fetchd.log'
+    assert not api.openpak_fetchd_active()
+    log.write_bytes(b'cycle\n');assert api.openpak_fetchd_active()
+    old=time.time()-13*3600;os.utime(log,(old,old));assert not api.openpak_fetchd_active()
+    os.utime(log);(atm/'openpak-fetchd.stop').write_bytes(b'');assert not api.openpak_fetchd_active();(atm/'openpak-fetchd.stop').unlink()
+    (atm/'openpak-fetchd.auto').unlink();assert not api.openpak_fetchd_active()
+    (atm/'openpak-fetchd.auto').write_bytes(b'');assert api.openpak_fetchd_active()
+    # Everything fetchd and its debugging leave behind, then removal: only the console's own files remain.
+    for junk in ['openpak-fetchd.enable','openpak-fetchd.write','openpak-fetchd.dry','openpak-fetchd.running','openpak-fetchd.stop',
+                 'openpak-fetchd.stage','openpak-fetchd.delay','openpak-fetchd.log.1','hosts/default.txt.openpak-prev',
+                 'hosts/emummc.txt.openpak-prev','hosts/default.txt.openpak-tmp','openpak-fetchd/ceiling.version','openpak-fetchd/dry-block.txt']:
+        (atm/junk).parent.mkdir(exist_ok=True);(atm/junk).write_bytes(b'x')
+    (title/'exefs.nsp.openpak-new').write_bytes(b'x');(atm/'openpak-fetchd.reloadtest').write_bytes(b'')
+    assert api.openpak_fetchd_remove(note,160),note.value
+    assert note.value==b'' and tree()==keep,sorted(set(tree())^set(keep))
+    assert (atm/'hosts/default.txt').exists() and (atm/'config/system_settings.ini').exists() and not title.exists()
+    assert api.openpak_fetchd_remove(note,160) and tree()==keep                              # idempotent
+    # A binary that is not the recorded one is refused with nothing written (fresh install leaves no trace).
+    # ASSET is relative to the working directory: a scratch romfs, never the repository's file.
+    shipped=tmp/'fetchd-assets/romfs/system/openpak-fetchd.nsp';shipped.parent.mkdir(parents=True);shipped.write_bytes(asset);os.chdir(tmp/'fetchd-assets')
+    try:
+        shipped.write_bytes(asset+b'x')
+        assert not api.openpak_fetchd_install(note,160) and b'does not match its recorded hash' in note.value
+        assert tree()==keep
+        # Upgrade over an installed one: refused too, and the installed files are not touched.
+        shipped.write_bytes(asset);assert api.openpak_fetchd_install(note,160)
+        shipped.write_bytes(b'PFS0'+b'\0'*40);before=tree()
+        assert not api.openpak_fetchd_install(note,160) and tree()==before and (title/'exefs.nsp').read_bytes()==asset
+        shipped.unlink()
+        assert not api.openpak_fetchd_install(note,160) and tree()==before
+    finally:
+        os.chdir(repo)
+    assert api.openpak_fetchd_remove(note,160) and tree()==keep
+    # No room to create the files: reported, and a fresh install is rolled back to nothing.
+    os.chmod(atm/'contents',0o500)
+    try:
+        if os.geteuid()!=0:
+            assert not api.openpak_fetchd_install(note,160) and note.value.endswith(b'redirects stay as selected.'),note.value
+            os.chmod(atm/'contents',0o700);assert tree()==keep or not title.exists()
+    finally:
+        os.chmod(atm/'contents',0o700)
+    api.openpak_fetchd_remove(note,160)
+    print('PASS: openpak-fetchd: install writes exefs.nsp, boot2.flag and the .auto gate and nothing else; re-apply, stale binary and '
+          'interrupted replace recovered; a binary off the recorded hash is refused untouched; removal leaves only the console\'s own files')
     if not a.package3:
         print('SKIP: real-package build, install and upgrade (no --package3, none in the workspace)')
     if a.package3:

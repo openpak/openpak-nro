@@ -2,6 +2,7 @@
 #include "system.h"
 #include "hosts.h"
 #include "ksp.h"
+#include "fetchd_asset.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +10,8 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
+#include <time.h>
+#include <unistd.h>
 #ifdef OPENPAK_HOST_TEST
 #include <openssl/sha.h>
 #define ASSET "romfs/"
@@ -828,4 +831,109 @@ bool openpak_album_remove(char *note,int len) {
         snprintf(note,len,"Restored override_config.ini; could not remove its backup.");return false;
     }
     return true;
+}
+
+// openpak-fetchd (console/openpak-fetchd): a boot2 sysmodule that keeps the OpenPak block of the
+// hosts files in step with openpak.org (signed ceiling + profile, pinned key, one-way version
+// rule) and tells dns_mitm to reload. Selecting OpenPak installs it, Nintendo removes all of it:
+// a console that is not on OpenPak never has a boot2 sysmodule of ours. The binary is the NRO's
+// romfs:/system/openpak-fetchd.nsp, refused unless it is the one recorded in fetchd_asset.h.
+// fetchd only edits a block that is already there, so this runs after the hosts files are written.
+#define FETCHD_DIR "/atmosphere/contents/01FE000000000F00"
+#define FETCHD_NSP FETCHD_DIR "/exefs.nsp"
+#define FETCHD_FLAG FETCHD_DIR "/flags/boot2.flag"
+#define FETCHD_GATE "/atmosphere/openpak-fetchd.auto"     // persistent: run every boot, and write
+#define FETCHD_STOP "/atmosphere/openpak-fetchd.stop"
+#define FETCHD_LOG "/atmosphere/openpak-fetchd.log"
+#define FETCHD_FRESH_SECONDS (12*3600)                    // a cycle every 6 h of uptime
+
+static bool has_suffix(const char *s,const char *suffix) {
+    size_t n=strlen(s),k=strlen(suffix);return n>=k && !strcmp(s+n-k,suffix);
+}
+// Removes a file or a folder tree under the card root. Folders of ours are flat or one level deep.
+static bool erase_tree(const char *p,int depth) {
+    char full[512];path(full,p);
+    struct stat st;if(lstat(full,&st))return errno==ENOENT;
+    if(!S_ISDIR(st.st_mode))return remove(full)==0;
+    if(depth>4)return false;
+    DIR *d=opendir(full);if(!d)return false;
+    bool ok=true;
+    for(struct dirent *e;(e=readdir(d));) {
+        if(!strcmp(e->d_name,".")||!strcmp(e->d_name,".."))continue;
+        char child[512];snprintf(child,sizeof(child),"%s/%s",p,e->d_name);
+        if(!erase_tree(child,depth+1))ok=false;
+    }
+    closedir(d);
+    return rmdir(full)==0 && ok;
+}
+// Everything fetchd leaves on the card, whatever gate or debug file made it: the gate first so a
+// half-done removal never keeps it writing, then the title folder, then every /atmosphere/
+// openpak-fetchd* entry (gates, .log/.log.1, .running, the state folder) and the hosts backups
+// (<file>.openpak-prev, .openpak-tmp) it keeps next to the files it rewrote.
+static bool fetchd_wipe(void) {
+    bool ok=erase(FETCHD_GATE) && erase(FETCHD_FLAG) && erase(FETCHD_NSP) && erase_tree(FETCHD_DIR,0);
+    const char *dirs[]={"/atmosphere","/atmosphere/hosts"};
+    for(int i=0;i<2;++i) {
+        char full[512];path(full,dirs[i]);
+        DIR *d=opendir(full);if(!d)continue;
+        // Collect first, erase after: removing while reading a directory skips entries on FAT.
+        char names[48][64];int n=0;
+        for(struct dirent *e;n<48 && (e=readdir(d));) {
+            bool mine=i==0?!strncmp(e->d_name,"openpak-fetchd",14)
+                          :has_suffix(e->d_name,".openpak-prev")||has_suffix(e->d_name,".openpak-tmp");
+            if(mine && strlen(e->d_name)<64)snprintf(names[n++],64,"%.63s",e->d_name);
+        }
+        closedir(d);
+        for(int j=0;j<n;++j) { char p[512];snprintf(p,sizeof(p),"%s/%s",dirs[i],names[j]);if(!erase_tree(p,0))ok=false; }
+    }
+    return ok;
+}
+static bool fetchd_present(void) {
+    return exists(FETCHD_DIR) || exists(FETCHD_GATE) || exists("/atmosphere/openpak-fetchd");
+}
+
+// True when fetchd is installed, gated on and has run lately: it keeps the hosts block current by
+// itself, so the NRO need not tell the player to re-apply. The log's mtime is the only evidence
+// (it grows every cycle, whatever the outcome), so a cycle that was refused counts too.
+bool openpak_fetchd_active(void) {
+    char full[512];struct stat st;
+    if(!exists(FETCHD_NSP)||!exists(FETCHD_GATE)||exists(FETCHD_STOP))return false;
+    path(full,FETCHD_LOG);
+    if(stat(full,&st))return false;
+    time_t now=time(NULL);
+    return now>=st.st_mtime && now-st.st_mtime<=FETCHD_FRESH_SECONDS;
+}
+
+bool openpak_fetchd_install(char *note,int len) {
+    note[0]='\0';
+    bool ok=false,fresh=!fetchd_present();
+    size_t n=0;uint8_t *nsp=NULL;
+    const char *failure="Could not read the hosts updater";
+    if(!recover_file(FETCHD_NSP)) { failure="Could not recover the hosts updater";goto done; }
+    nsp=read_file(ASSET "system/openpak-fetchd.nsp",&n,true);
+    if(!nsp)goto done;
+    // The bytes are checked against the recorded hash before anything is written; replace_file
+    // then writes a temp file, reads it back against these same bytes and renames it into place.
+    failure="The hosts updater in this build does not match its recorded hash; not installed";
+    if(n<16 || memcmp(nsp,"PFS0",4) || !fingerprint(nsp,n,OPENPAK_FETCHD_SHA256))goto done;
+    failure="Could not install the hosts updater";
+    if(!erase(FETCHD_STOP))goto done;                    // a stale stop file would end it at once
+    if(!replace_file(FETCHD_NSP,nsp,n))goto done;
+    if(!exists(FETCHD_FLAG) && !write_file(FETCHD_FLAG,"",0))goto done;
+    if(!exists(FETCHD_GATE) && !write_file(FETCHD_GATE,"",0))goto done;   // last: it arms the writes
+    ok=true;
+done:
+    free(nsp);
+    if(!ok) {
+        snprintf(note,len,"%s; redirects stay as selected.",failure);
+        if(fresh)fetchd_wipe();                           // never half an install
+    }
+    return ok;
+}
+
+bool openpak_fetchd_remove(char *note,int len) {
+    note[0]='\0';
+    if(fetchd_wipe())return true;
+    snprintf(note,len,"Could not remove all of the hosts updater; delete " FETCHD_DIR " and /atmosphere/openpak-fetchd* by hand.");
+    return false;
 }

@@ -78,6 +78,8 @@ static void load_ip(char *ip, size_t len) {
 // user selects OpenPak again (docs/signed-ceiling.md, client rule 5).
 #define REDIRECTS_CHANGED "OpenPak updated the Switch's network redirects. Re-apply OpenPak and reboot to use them."
 static bool redirects_changed(const char *ip) {
+    // openpak-fetchd keeps the hosts block current on its own: nothing for the player to re-apply.
+    if (openpak_fetchd_active()) return false;
     char installed[65], pending[65];
     if (!openpak_installed_digest(installed)) return false;
     openpak_pending_digest(ip, pending);
@@ -147,6 +149,8 @@ static char album_note[160];
 static bool album_ok;
 // Why Save Data Cloud was not set up (or kept), after either; "" when it went through.
 static char ksp_note[160];
+// Why the hosts updater (openpak-fetchd) was not installed or not fully removed; "" when it went through.
+static char fetchd_note[160];
 
 static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
                    bool offering) {
@@ -195,7 +199,11 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
             txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, album_ok ? INK : WARN, "%s", album_note);
             note_y += 26;
         }
-        if (ksp_note[0]) txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, WARN, "%s", ksp_note);
+        if (ksp_note[0]) {
+            txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, WARN, "%s", ksp_note);
+            note_y += 26;
+        }
+        if (fetchd_note[0]) txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, WARN, "%s", fetchd_note);
     } else {
         txt_draw(margin, msg_y + 16, PX_LABEL, TXT_LEFT, MUTED,
                  "Changes apply at boot — dns_mitm reads the hosts files then.");
@@ -222,7 +230,11 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
             txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, album_ok ? INK : WARN, "%s", album_note);
             note_y += 26;
         }
-        if (ksp_note[0]) txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, WARN, "%s", ksp_note);
+        if (ksp_note[0]) {
+            txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, WARN, "%s", ksp_note);
+            note_y += 26;
+        }
+        if (fetchd_note[0]) txt_draw(margin, note_y, PX_LABEL, TXT_LEFT, WARN, "%s", fetchd_note);
     }
 
     // Footer
@@ -409,6 +421,10 @@ int main(int argc, char **argv) {
                                         : openpak_album_remove(album_note, sizeof(album_note));
                 if (album_ok) snprintf(album_note, sizeof(album_note), "%s", want_openpak ? ALBUM_NOTE : "");
                 snprintf(ksp_note, sizeof(ksp_note), "%s", openpak_ksp_note());
+                // After the hosts files: the hosts updater only edits a block that exists. Gone with
+                // the block on Nintendo, so no boot2 module of ours runs on a console not on OpenPak.
+                if (want_openpak) openpak_fetchd_install(fetchd_note, sizeof(fetchd_note));
+                else openpak_fetchd_remove(fetchd_note, sizeof(fetchd_note));
             } else {
                 snprintf(status, sizeof(status), "Failed: %s", err);
                 openpak_report_failure(want_openpak ? "install" : "remove", NULL, err);
