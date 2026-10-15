@@ -3,6 +3,24 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.3.27 — 2026-10-16 (hosts updater: new games arrive without the app)
+
+- system: selecting OpenPak now also installs `openpak-fetchd`, a small boot2 sysmodule
+  (`/atmosphere/contents/01FE000000000F00/`, plus `/atmosphere/openpak-fetchd.auto`). About a
+  minute after every boot, then every 6 hours, it fetches the signed redirect ceiling and the
+  profile from openpak.org, verifies the Ed25519 signature and the version floor, and rewrites
+  only the marked OpenPak block in `/atmosphere/hosts/default.txt` and `emummc.txt` (foreign
+  lines for the same names are commented out with `#openpak-off# `, as this tool does), then
+  asks dns.mitm to reload live. A new game's forwarding no longer needs the tool or a reboot.
+  It never creates a block, so a console that did not choose OpenPak is left alone. Refusals
+  (bad signature, version regression, oversize, empty set) change nothing. Selecting Nintendo
+  removes the module, its gate files, state, logs and hosts backups. The embedded binary is
+  checked against a recorded sha256 and refused when it does not match. The "re-apply
+  OpenPak" notice is no longer shown while the module is active.
+- tools: `tools/build-fetchd.sh` rebuilds the asset reproducibly from `console/openpak-fetchd`.
+- tests: `tools/test-system.py` covers install, re-apply, a stale binary, an interrupted
+  replace, a binary off the recorded hash, activity detection and removal.
+
 ## v0.3.26 — 2026-10-15 (version-list push settings)
 
 - system: selecting OpenPak now ensures two Atmosphere settings in
