@@ -216,10 +216,10 @@ of truth; this file is the readable summary.
   dns.mitm answers that lookup itself the game unregisters within the second, sends no probe and
   shows 2618-0006. Reaching the real resolver makes the NAT check run (console, Golf and Kirby,
   2026-09-25). Test asserts nothing in the block matches those names.
-- system: enable clears `blank_prodinfo_emummc=1` in `/exosphere.ini` (the third-party setup's Nintendo mode
-  sets it; without the device certificate nn.account fails 2123-0011 and nothing signs in). Disable
-  sets it to 1, the safe state for a console about to talk to Nintendo again (what the third-party setup's
-  Nintendo mode does). A copy of the file as found goes to `/switch/openpak/system/exosphere.previous`.
+- system: enable clears `blank_prodinfo_emummc=1` in `/exosphere.ini` (a Nintendo-facing
+  setup sets it; without the device certificate nn.account fails 2123-0011 and nothing signs in). Disable
+  sets it to 1, the safe state for a console about to talk to Nintendo again (what a Nintendo-facing
+  setup does). A copy of the file as found goes to `/switch/openpak/system/exosphere.previous`.
 
 - system: the certificate overlay is built from the CertStore file itself (the archive is
   mounted and read as the ssl service reads it: 127 entries on 22.5.0, original layout) with
