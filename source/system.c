@@ -323,8 +323,7 @@ bool openpak_store_file_is_ours(void) {
 }
 
 
-// exosphere.ini's blank_prodinfo_emummc: 1 hides the console's identity from Nintendo (the third-party setup's
-// "Nintendo" mode sets it), but a blank identity has no device certificate, so under OpenPak
+// exosphere.ini's blank_prodinfo_emummc: 1 hides the console's identity from Nintendo, but a blank identity has no device certificate, so under OpenPak
 // nn.account fails 2123-0011 before opening a connection and nothing signs in (2026-09-24
 // 21:35Z). Under OpenPak's redirects the real identity never reaches Nintendo, so enable writes
 // 0; disable writes 1, the safe state for a console about to talk to Nintendo again. The file as
