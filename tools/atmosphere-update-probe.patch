@@ -1,0 +1,551 @@
+diff --git a/stratosphere/ams_mitm/source/amsmitm_module_management.cpp b/stratosphere/ams_mitm/source/amsmitm_module_management.cpp
+index c8087a0..7ecbdbc 100644
+--- a/stratosphere/ams_mitm/source/amsmitm_module_management.cpp
++++ b/stratosphere/ams_mitm/source/amsmitm_module_management.cpp
+@@ -25,6 +25,7 @@
+ #include "dns_mitm/dnsmitm_module.hpp"
+ #include "sysupdater/sysupdater_module.hpp"
+ #include "mitm_pm/mitm_pm_module.hpp"
++#include "probe_mitm/probe_module.hpp"
+ 
+ namespace ams::mitm {
+ 
+@@ -39,6 +40,7 @@ namespace ams::mitm {
+             ModuleId_DnsMitm,
+             ModuleId_Sysupdater,
+             ModuleId_PmService,
++            ModuleId_OpenpakProbe,
+ 
+             ModuleId_Count,
+         };
+@@ -73,6 +75,7 @@ namespace ams::mitm {
+             GetModuleDefinition<socket::resolver::MitmModule>(),
+             GetModuleDefinition<sysupdater::MitmModule>(),
+             GetModuleDefinition<pm::MitmModule>(),
++            GetModuleDefinition<openpak_probe::MitmModule>(),
+         };
+ 
+     }
+diff --git a/stratosphere/ams_mitm/source/probe_mitm/probe_content.c b/stratosphere/ams_mitm/source/probe_mitm/probe_content.c
+new file mode 100644
+index 0000000..e791909
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/probe_mitm/probe_content.c
+@@ -0,0 +1,317 @@
++/*
++ * OpenPak content probe, steps 2..5: can ams_mitm read the installed OpenPak title / its update patch at boot?
++ * Strictly read-only. libnx ncm + lr + fs clients; no network service. A "call:" line is written (and flushed by
++ * the logger) before every service call, "rc=" after it, so the last line in the log names the call that hurt.
++ */
++#include "probe_content.h"
++
++#include <string.h>
++#include <stdio.h>
++#include <switch/kernel/thread.h>
++#include <switch/crypto/sha256.h>
++
++#define APP_ID   0x01FE000000000000ull
++#define PATCH_ID 0x01FE000000000800ull
++
++#define STACK_SIZE 0x20000
++static u8 g_stack[STACK_SIZE] __attribute__((aligned(0x1000)));
++
++#define MAX_KEYS    64
++#define MAX_INFOS   8
++#define NSTORAGE    2
++#define NTITLE      2
++static const NcmStorageId g_storages[NSTORAGE] = { NcmStorageId_BuiltInUser, NcmStorageId_SdCard };
++static const char *const  g_storage_names[NSTORAGE] = { "BuiltInUser", "SdCard" };
++static const u64          g_title_ids[NTITLE] = { APP_ID, PATCH_ID };
++static const char *const  g_title_names[NTITLE] = { "app", "patch" };
++
++static NcmContentMetaDatabase g_db[NSTORAGE];
++static NcmContentStorage      g_cs[NSTORAGE];
++static bool                   g_db_ok[NSTORAGE], g_cs_ok[NSTORAGE];
++static NcmContentMetaKey      g_keys[MAX_KEYS];
++static NcmContentInfo         g_infos[NSTORAGE][NTITLE][MAX_INFOS];
++static s32                    g_info_n[NSTORAGE][NTITLE];
++static char                   g_paths[NSTORAGE][NTITLE][MAX_INFOS][FS_MAX_PATH];
++static bool                   g_path_ok[NSTORAGE][NTITLE][MAX_INFOS];
++static char                   g_lrpath[FS_MAX_PATH];
++
++static FsDirectoryEntry g_ent;
++static char             g_path[FS_MAX_PATH];
++static char             g_dirs[16][96];
++static u8               g_file[0x10000];
++static bool             g_hashed;
++static bool             g_listing_logged;
++
++typedef struct { ProbeLogFn log; int stage; } Args;
++static Args g_args;
++
++static void hex16(char out[33], const NcmContentId *id) {
++    for (int i = 0; i < 16; i++) snprintf(out + 2 * i, 3, "%02x", id->c[i]);
++}
++
++/* ---- step 5: listing + hash of an opened filesystem ---- */
++
++static void listDir(ProbeLogFn log, FsFileSystem *fs, const char *dir, int level, int *count, int *ndirs) {
++    FsDir d;
++    log("call: fsFsOpenDirectory(%s)", dir);
++    Result rc = fsFsOpenDirectory(fs, dir, FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &d);
++    log("  rc=0x%x", rc);
++    if (R_FAILED(rc)) return;
++    for (;;) {
++        s64 total = 0;
++        if (*count >= 100) { log("  (cap 100 entries reached)"); break; }
++        memset(&g_ent, 0, sizeof(g_ent));
++        rc = fsDirRead(&d, &total, 1, &g_ent);
++        if (R_FAILED(rc)) { log("  fsDirRead rc=0x%x", rc); break; }
++        if (total <= 0) break;
++        (*count)++;
++        g_ent.name[FS_MAX_PATH - 1] = 0;
++        log("  %s%s type=%s size=%lld", dir, g_ent.name, g_ent.type == FsDirEntryType_Dir ? "dir" : "file", (long long)g_ent.file_size);
++        if (g_ent.type == FsDirEntryType_Dir) {
++            if (level == 0 && *ndirs < 16) { snprintf(g_dirs[*ndirs], sizeof(g_dirs[0]), "%s", g_ent.name); (*ndirs)++; }
++        } else if (!g_hashed && g_ent.file_size > 0 && g_ent.file_size <= 0x10000 && strlen(dir) + strlen(g_ent.name) < FS_MAX_PATH - 1) {
++            FsFile f;
++            u64 got = 0;
++            snprintf(g_path, sizeof(g_path), "%s%s", dir, g_ent.name);
++            const s64 want = g_ent.file_size;
++            log("call: hash fsFsOpenFile(%s)", g_path);
++            rc = fsFsOpenFile(fs, g_path, FsOpenMode_Read, &f);
++            log("  rc=0x%x", rc);
++            if (R_SUCCEEDED(rc)) {
++                log("call: fsFileRead(%lld bytes)", (long long)want);
++                rc = fsFileRead(&f, 0, g_file, (u64)want, FsReadOption_None, &got);
++                log("  rc=0x%x got=%llu", rc, (unsigned long long)got);
++                if (R_SUCCEEDED(rc) && got == (u64)want) {
++                    u8 h[0x20];
++                    char hs[65];
++                    sha256CalculateHash(h, g_file, (size_t)got);
++                    for (int i = 0; i < 32; i++) snprintf(hs + 2 * i, 3, "%02x", h[i]);
++                    log("  sha256(%s, %llu bytes)=%s", g_path, (unsigned long long)got, hs);
++                    g_hashed = true;
++                }
++                fsFileClose(&f);
++            }
++        }
++    }
++    fsDirClose(&d);
++}
++
++static void inspectFs(ProbeLogFn log, int stage, FsFileSystem *fs, const char *label) {
++    if (stage != 0 && stage <= 5) {
++        if (!g_listing_logged) { log("stage=%d: stopping before step 5 (listing); filesystems are only opened+closed", stage); g_listing_logged = true; }
++        log("call: fsFsClose (%s)", label);
++        fsFsClose(fs);
++        return;
++    }
++    log("step 5 list %s: begin", label);
++    g_hashed = false;
++    int count = 0, ndirs = 0;
++    listDir(log, fs, "/", 0, &count, &ndirs);
++    for (int i = 0; i < ndirs && count < 100; i++) {
++        char sub[112];
++        snprintf(sub, sizeof(sub), "/%s/", g_dirs[i]);
++        listDir(log, fs, sub, 1, &count, &ndirs);
++        /* level-1 never adds dirs (level != 0), ndirs is unchanged */
++    }
++    log("step 5 list %s: done entries=%d", label, count);
++    log("call: fsFsClose (%s)", label);
++    fsFsClose(fs);
++}
++
++/* ---- steps 2..4 ---- */
++
++static void step2(ProbeLogFn log) {
++    Result rc;
++    log("call: ncmInitialize");
++    rc = ncmInitialize();
++    log("  rc=0x%x", rc);
++    if (R_FAILED(rc)) return;
++    for (int s = 0; s < NSTORAGE; s++) {
++        log("call: ncmOpenContentMetaDatabase(%s)", g_storage_names[s]);
++        rc = ncmOpenContentMetaDatabase(&g_db[s], g_storages[s]);
++        log("  rc=0x%x", rc);
++        g_db_ok[s] = R_SUCCEEDED(rc);
++        log("call: ncmOpenContentStorage(%s)", g_storage_names[s]);
++        rc = ncmOpenContentStorage(&g_cs[s], g_storages[s]);
++        log("  rc=0x%x", rc);
++        g_cs_ok[s] = R_SUCCEEDED(rc);
++        if (!g_db_ok[s]) continue;
++
++        s32 total = 0, written = 0;
++        log("call: ncmContentMetaDatabaseList(%s, any type, count=%d)", g_storage_names[s], MAX_KEYS);
++        rc = ncmContentMetaDatabaseList(&g_db[s], &total, &written, g_keys, MAX_KEYS, NcmContentMetaType_Unknown, 0, 0, UINT64_MAX, NcmContentInstallType_Unknown);
++        log("  rc=0x%x total=%d written=%d (this is the meta key count)", rc, total, written);
++        if (R_SUCCEEDED(rc)) {
++            for (s32 i = 0; i < written && i < MAX_KEYS; i++)
++                log("  key[%d] id=%016llx type=0x%02x ver=%u install=%u", i, (unsigned long long)g_keys[i].id, g_keys[i].type, g_keys[i].version, g_keys[i].install_type);
++        }
++
++        for (int t = 0; t < NTITLE; t++) {
++            NcmContentMetaKey key;
++            bool has = false;
++            memset(&key, 0, sizeof(key));
++            log("call: ncmContentMetaDatabaseGetLatestContentMetaKey(%s, %s %016llx)", g_storage_names[s], g_title_names[t], (unsigned long long)g_title_ids[t]);
++            rc = ncmContentMetaDatabaseGetLatestContentMetaKey(&g_db[s], &key, g_title_ids[t]);
++            log("  rc=0x%x", rc);
++            if (R_FAILED(rc)) continue;
++            log("  %s key id=%016llx type=0x%02x ver=%u install=%u", g_title_names[t], (unsigned long long)key.id, key.type, key.version, key.install_type);
++            log("call: ncmContentMetaDatabaseHas(%s)", g_title_names[t]);
++            rc = ncmContentMetaDatabaseHas(&g_db[s], &has, &key);
++            log("  rc=0x%x has=%d", rc, (int)has);
++            s32 n = 0;
++            log("call: ncmContentMetaDatabaseListContentInfo(%s)", g_title_names[t]);
++            rc = ncmContentMetaDatabaseListContentInfo(&g_db[s], &n, g_infos[s][t], MAX_INFOS, &key, 0);
++            log("  rc=0x%x written=%d", rc, n);
++            if (R_SUCCEEDED(rc)) {
++                g_info_n[s][t] = n;
++                for (s32 i = 0; i < n && i < MAX_INFOS; i++) {
++                    char hx[33];
++                    hex16(hx, &g_infos[s][t][i].content_id);
++                    log("  info[%d] content_id=%s type=%u size=%llu", i, hx, g_infos[s][t][i].content_type,
++                        (unsigned long long)g_infos[s][t][i].size_low | ((unsigned long long)g_infos[s][t][i].size_high << 32));
++                }
++            }
++        }
++    }
++}
++
++static void step3(ProbeLogFn log) {
++    Result rc;
++    for (int s = 0; s < NSTORAGE; s++) {
++        if (!g_cs_ok[s]) continue;
++        for (int t = 0; t < NTITLE; t++) {
++            for (s32 i = 0; i < g_info_n[s][t] && i < MAX_INFOS; i++) {
++                char hx[33];
++                hex16(hx, &g_infos[s][t][i].content_id);
++                log("call: ncmContentStorageGetPath(%s, %s, %s)", g_storage_names[s], g_title_names[t], hx);
++                g_paths[s][t][i][0] = 0;
++                rc = ncmContentStorageGetPath(&g_cs[s], g_paths[s][t][i], FS_MAX_PATH, &g_infos[s][t][i].content_id);
++                g_paths[s][t][i][FS_MAX_PATH - 1] = 0;
++                log("  rc=0x%x path=%s", rc, g_paths[s][t][i]);
++                g_path_ok[s][t][i] = R_SUCCEEDED(rc);
++            }
++        }
++    }
++    log("call: lrInitialize");
++    rc = lrInitialize();
++    log("  rc=0x%x", rc);
++    if (R_FAILED(rc)) return;
++    for (int s = 0; s < NSTORAGE; s++) {
++        LrLocationResolver lr;
++        log("call: lrOpenLocationResolver(%s)", g_storage_names[s]);
++        rc = lrOpenLocationResolver(g_storages[s], &lr);
++        log("  rc=0x%x", rc);
++        if (R_FAILED(rc)) continue;
++        for (int t = 0; t < NTITLE; t++) {
++            memset(g_lrpath, 0, sizeof(g_lrpath));
++            log("call: lrLrResolveProgramPath(%s, %s)", g_storage_names[s], g_title_names[t]);
++            rc = lrLrResolveProgramPath(&lr, g_title_ids[t], g_lrpath);
++            g_lrpath[FS_MAX_PATH - 1] = 0;
++            log("  rc=0x%x path=%s", rc, g_lrpath);
++            memset(g_lrpath, 0, sizeof(g_lrpath));
++            log("call: lrLrResolveDataPath(%s, %s)", g_storage_names[s], g_title_names[t]);
++            rc = lrLrResolveDataPath(&lr, g_title_ids[t], g_lrpath);
++            g_lrpath[FS_MAX_PATH - 1] = 0;
++            log("  rc=0x%x path=%s", rc, g_lrpath);
++        }
++        serviceClose(&lr.s);
++    }
++}
++
++static void tryOpenWithPatch(ProbeLogFn log, int stage, u64 id, const char *name, FsFileSystemType type, int typenum) {
++    FsFileSystem fs;
++    char label[64];
++    log("call: fsOpenFileSystemWithPatch(%s %016llx, type=%d)", name, (unsigned long long)id, typenum);
++    Result rc = fsOpenFileSystemWithPatch(&fs, id, type);
++    log("  rc=0x%x", rc);
++    if (R_FAILED(rc)) return;
++    snprintf(label, sizeof(label), "WithPatch(%s,type=%d)", name, typenum);
++    inspectFs(log, stage, &fs, label);
++}
++
++static void step4(ProbeLogFn log, int stage) {
++    FsFileSystem fs;
++    char label[96];
++    Result rc;
++    for (int t = 0; t < NTITLE; t++) {
++        log("call: fsOpenDataFileSystemByProgramId(%s %016llx)", g_title_names[t], (unsigned long long)g_title_ids[t]);
++        rc = fsOpenDataFileSystemByProgramId(&fs, g_title_ids[t]);
++        log("  rc=0x%x", rc);
++        if (R_SUCCEEDED(rc)) {
++            snprintf(label, sizeof(label), "ByProgramId(%s)", g_title_names[t]);
++            inspectFs(log, stage, &fs, label);
++        }
++    }
++    tryOpenWithPatch(log, stage, PATCH_ID, "patch", FsFileSystemType_ContentData, 6);
++    tryOpenWithPatch(log, stage, PATCH_ID, "patch", FsFileSystemType_ContentControl, 3);
++    tryOpenWithPatch(log, stage, APP_ID, "app", FsFileSystemType_ContentData, 6);
++
++    for (int s = 0; s < NSTORAGE; s++) {
++        for (int t = 0; t < NTITLE; t++) {
++            for (s32 i = 0; i < g_info_n[s][t] && i < MAX_INFOS; i++) {
++                if (!g_path_ok[s][t][i]) continue;
++                int types[2], nt = 0;
++                switch (g_infos[s][t][i].content_type) {
++                    case NcmContentType_Meta:    types[nt++] = 5; break;
++                    case NcmContentType_Program: types[nt++] = 7; types[nt++] = 6; break;
++                    case NcmContentType_Data:    types[nt++] = 6; break;
++                    case NcmContentType_Control: types[nt++] = 3; break;
++                    default:                     types[nt++] = 4; break;
++                }
++                for (int k = 0; k < nt; k++) {
++                    log("call: fsOpenFileSystemWithId(%s, %s, ctype=%u, fstype=%d, %s)", g_storage_names[s], g_title_names[t],
++                        g_infos[s][t][i].content_type, types[k], g_paths[s][t][i]);
++                    rc = fsOpenFileSystemWithId(&fs, g_title_ids[t], (FsFileSystemType)types[k], g_paths[s][t][i], FsContentAttributes_None);
++                    log("  rc=0x%x", rc);
++                    if (R_SUCCEEDED(rc)) {
++                        snprintf(label, sizeof(label), "WithId(%s,%s,info%d,type=%d)", g_storage_names[s], g_title_names[t], (int)i, types[k]);
++                        inspectFs(log, stage, &fs, label);
++                    }
++                }
++            }
++        }
++    }
++}
++
++static void probeRun(void *arg) {
++    const Args *a = (const Args *)arg;
++    ProbeLogFn log = a->log;
++    const int stage = a->stage;
++
++    if (stage != 0 && 2 >= stage) { log("stage=%d: stopping before step 2 (ncm)", stage); return; }
++    log("step 2 ncm: begin");
++    step2(log);
++
++    if (stage != 0 && 3 >= stage) { log("stage=%d: stopping before step 3 (paths)", stage); goto done; }
++    log("step 3 paths: begin");
++    step3(log);
++
++    if (stage != 0 && 4 >= stage) { log("stage=%d: stopping before step 4 (fs open)", stage); goto done; }
++    log("step 4 fs open: begin");
++    step4(log, stage);
++
++done:
++    log("worker cleanup begin");
++    for (int s = 0; s < NSTORAGE; s++) {
++        if (g_db_ok[s]) ncmContentMetaDatabaseClose(&g_db[s]);
++        if (g_cs_ok[s]) ncmContentStorageClose(&g_cs[s]);
++    }
++    log("worker cleanup done");
++}
++
++void probeContentRun(ProbeLogFn log, int stage) {
++    Thread t;
++    s32 prio = 0x2C;
++    g_args.log = log;
++    g_args.stage = stage;
++    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
++    Result rc = threadCreate(&t, probeRun, &g_args, g_stack, STACK_SIZE, prio, -2);
++    log("worker thread create rc=0x%x prio=%d", rc, prio);
++    if (R_FAILED(rc)) return;
++    rc = threadStart(&t);
++    log("worker thread start rc=0x%x", rc);
++    if (R_FAILED(rc)) { threadClose(&t); return; }
++    rc = svcWaitSynchronizationSingle(t.handle, 180ull * 1000000000ull);
++    log("worker thread wait rc=0x%x (0xea01 = timeout, worker hung)", rc);
++    if (R_SUCCEEDED(rc)) threadClose(&t); /* on timeout leak thread + stack, never reuse */
++}
+diff --git a/stratosphere/ams_mitm/source/probe_mitm/probe_content.h b/stratosphere/ams_mitm/source/probe_mitm/probe_content.h
+new file mode 100644
+index 0000000..f4b8c4c
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/probe_mitm/probe_content.h
+@@ -0,0 +1,20 @@
++/*
++ * OpenPak content probe: read-only ncm / lr / fs side, plain C on libnx. No network service is touched
++ * (no nifm, bsd, ssl, sfdnsres). Every function returns normally; failures are logged and skipped.
++ */
++#pragma once
++#include <switch.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++typedef void (*ProbeLogFn)(const char *fmt, ...);
++
++/* Steps 2..5 on a dedicated thread with a static aligned stack; waits up to 180 s for it.
++ * stage 0 = all steps; N>0 = stop before step N. */
++void probeContentRun(ProbeLogFn log, int stage);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/stratosphere/ams_mitm/source/probe_mitm/probe_module.cpp b/stratosphere/ams_mitm/source/probe_mitm/probe_module.cpp
+new file mode 100644
+index 0000000..c41f582
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/probe_mitm/probe_module.cpp
+@@ -0,0 +1,150 @@
++/*
++ * OpenPak content probe (experimental, read-only, NO network).
++ *
++ * Question it answers: can ams_mitm at boot read the data of the installed OpenPak title / its update patch
++ * (ncm content meta, lr paths, fs data file systems)? Changes nothing, touches no network service.
++ *
++ * Runs only when /atmosphere/openpak-probe.enable exists on the SD. Logs to /atmosphere/openpak-probe.log,
++ * a line before every step and a rc after every call. Never aborts. Steps 2..5 live in probe_content.c.
++ */
++#include <stratosphere.hpp>
++#include "../amsmitm_fs_utils.hpp"
++#include "../amsmitm_initialization.hpp"
++#include "probe_module.hpp"
++#include "probe_content.h"
++
++namespace ams::mitm::openpak_probe {
++
++    namespace {
++
++        constexpr const char *EnablePath = "/atmosphere/openpak-probe.enable";
++        constexpr const char *LogPath    = "/atmosphere/openpak-probe.log";
++        /* Optional: decimal N inside. Steps 0..N-1 run, step N and later are skipped (0/absent = all). */
++        constexpr const char *StagePath  = "/atmosphere/openpak-probe.stage";
++        /* Optional: decimal seconds of uptime to wait for in step 1 (default 30). */
++        constexpr const char *DelayPath  = "/atmosphere/openpak-probe.delay";
++        constexpr const char *HostsPath  = "/atmosphere/hosts/default.txt";
++
++        constexpr s64 DefaultDelaySec = 30;
++
++        constinit ::FsFile g_log_file;
++        constinit s64      g_log_ofs  = 0;
++        constinit bool     g_log_open = false;
++        constinit char     g_line[512];
++
++        s64 UptimeMs() {
++            return os::ConvertToTimeSpan(os::GetSystemTick()).GetMilliSeconds();
++        }
++
++        void Log(const char *fmt, ...) {
++            if (!g_log_open) {
++                return;
++            }
++            int len = util::SNPrintf(g_line, sizeof(g_line) - 2, "[%8lld ms] ", static_cast<long long>(UptimeMs()));
++            std::va_list vl;
++            va_start(vl, fmt);
++            len += util::VSNPrintf(g_line + len, sizeof(g_line) - len - 2, fmt, vl);
++            va_end(vl);
++            if (len > static_cast<int>(sizeof(g_line)) - 2) {
++                len = sizeof(g_line) - 2;
++            }
++            g_line[len++] = '\n';
++            if (R_SUCCEEDED(::fsFileWrite(std::addressof(g_log_file), g_log_ofs, g_line, len, FsWriteOption_Flush))) {
++                g_log_ofs += len;
++            }
++        }
++
++        bool OpenLog() {
++            static_cast<void>(mitm::fs::CreateSdFile(LogPath, 0, ams::fs::CreateOption_None));
++            if (R_FAILED(mitm::fs::OpenSdFile(std::addressof(g_log_file), LogPath, ams::fs::OpenMode_ReadWrite | ams::fs::OpenMode_AllowAppend))) {
++                return false;
++            }
++            if (R_FAILED(::fsFileGetSize(std::addressof(g_log_file), std::addressof(g_log_ofs)))) {
++                return false;
++            }
++            g_log_open = true;
++            return true;
++        }
++
++        /* Reads a decimal number from an SD file; returns def when the file is absent or empty. */
++        s64 ReadNumber(const char *path, s64 def) {
++            ::FsFile f;
++            if (R_FAILED(mitm::fs::OpenSdFile(std::addressof(f), path, ams::fs::OpenMode_Read))) {
++                return def;
++            }
++            char buf[16] = {};
++            u64 read = 0;
++            s64 n = 0;
++            bool any = false;
++            if (R_SUCCEEDED(::fsFileRead(std::addressof(f), 0, buf, sizeof(buf) - 1, FsReadOption_None, std::addressof(read)))) {
++                for (u64 i = 0; i < read && buf[i] >= '0' && buf[i] <= '9'; i++) {
++                    n = n * 10 + (buf[i] - '0');
++                    any = true;
++                }
++            }
++            ::fsFileClose(std::addressof(f));
++            return any ? n : def;
++        }
++
++        void Sleep(s64 ms) {
++            os::SleepThread(TimeSpan::FromMilliSeconds(ms));
++        }
++
++    }
++
++    void MitmModule::ThreadFunction(void *) {
++        /* Wait until initialization is complete (SD mounted). */
++        mitm::WaitInitialized();
++
++        /* Inert unless the enable file exists. */
++        if (!mitm::fs::HasSdFile(EnablePath)) {
++            return;
++        }
++        if (!OpenLog()) {
++            return;
++        }
++
++        /* Step 0. */
++        const int stage = static_cast<int>(ReadNumber(StagePath, 0));
++        Log("step 0 start: probe start v3 content (stage limit=%d, 0 = all; N = stop before step N)", stage);
++        Log("uptime=%lld ms", static_cast<long long>(UptimeMs()));
++
++        /* Step 1: SD is writable (this very line proves it), then wait for a fixed uptime. */
++        if (stage != 0 && stage <= 1) { Log("stage=%d: stopping before step 1 (delay)", stage); return; }
++        const s64 delay_sec = ReadNumber(DelayPath, DefaultDelaySec);
++        Log("step 1 delay: begin, SD writable (log flushed), waiting until uptime >= %lld s", static_cast<long long>(delay_sec));
++        while (UptimeMs() < delay_sec * 1000) {
++            Sleep(1000);
++        }
++        Log("step 1 delay: done, uptime=%lld ms", static_cast<long long>(UptimeMs()));
++
++        /* Steps 2..5 on a libnx worker thread. */
++        if (stage != 0 && stage <= 2) { Log("stage=%d: stopping before step 2 (ncm)", stage); return; }
++        probeContentRun(Log, stage);
++
++        /* Step 6: hosts file for context. */
++        if (stage != 0 && stage <= 6) { Log("stage=%d: stopping before step 6 (hosts)", stage); return; }
++        Log("step 6 hosts: begin");
++        {
++            ::FsFile f;
++            const bool has = mitm::fs::HasSdFile(HostsPath);
++            Log("hosts %s exists=%d", HostsPath, has ? 1 : 0);
++            if (has) {
++                Log("call: OpenSdFile(hosts)");
++                const auto rc = mitm::fs::OpenSdFile(std::addressof(f), HostsPath, ams::fs::OpenMode_Read);
++                Log("  rc=0x%x", rc.GetValue());
++                if (R_SUCCEEDED(rc)) {
++                    s64 size = 0;
++                    const ::Result rc2 = ::fsFileGetSize(std::addressof(f), std::addressof(size));
++                    Log("  fsFileGetSize rc=0x%x size=%lld", rc2, static_cast<long long>(size));
++                    ::fsFileClose(std::addressof(f));
++                }
++            }
++        }
++
++        /* Step 7. */
++        if (stage != 0 && stage <= 7) { Log("stage=%d: stopping before step 7 (done)", stage); return; }
++        Log("step 7 done: ---- probe done");
++    }
++
++}
+diff --git a/stratosphere/ams_mitm/source/probe_mitm/probe_module.hpp b/stratosphere/ams_mitm/source/probe_mitm/probe_module.hpp
+new file mode 100644
+index 0000000..7800a42
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/probe_mitm/probe_module.hpp
+@@ -0,0 +1,12 @@
++/*
++ * OpenPak update-fetch probe module (experimental). GPLv2, derived from Atmosphere's module layout.
++ */
++#pragma once
++#include <stratosphere.hpp>
++#include "../amsmitm_module.hpp"
++
++namespace ams::mitm::openpak_probe {
++
++    DEFINE_MITM_MODULE_CLASS(0x8000, AMS_GET_SYSTEM_THREAD_PRIORITY(mitm, InitializeThread));
++
++}
