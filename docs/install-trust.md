@@ -91,10 +91,10 @@ refuses anything but the exact Atmosphère 1.12.0 release (sha256 `3cc9d6ca…`;
 `f162a419…` until v0.3.17), and builds
 `/atmosphere/package3-openpak` from it:
 
-- `ams_mitm` swapped for `romfs/system/ams_mitm-1.12.0.kip`;
-- `Loader` swapped for `romfs/system/loader-1.12.0.kip` (KIP1, name `Loader`, program id
+- `ams_mitm` swapped for `romfs/system/ams_mitm-1.12.1.kip`;
+- `Loader` swapped for `romfs/system/loader-1.12.1.kip` (KIP1, name `Loader`, program id
   `0x0100000000000001`, the original's header fields and capabilities);
-- `fusee` swapped for `romfs/system/fusee-1.12.0.bin`.
+- `fusee` swapped for `romfs/system/fusee-1.12.1.bin`.
 
 Loader is not the last KIP and the new one is 0x40 bytes larger, so the KIP region is repacked
 the way `fusee/build_package3.py` lays it out: emummc, then the KIPs in table order, 16-byte
