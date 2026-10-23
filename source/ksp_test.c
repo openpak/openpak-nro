@@ -1,7 +1,7 @@
 // Host-side checks for Save Data Cloud's hekate files (ksp.c). Build and run on a PC, no console:
 //   cc -o ksp_test source/ksp.c source/ksp_test.c -lcrypto && ./ksp_test
 // When the owner-local 23.0.x FS dumps are in the workspace (scratch/home/openpak-firmware-audit-23.0.x)
-// and OpenPak's public modulus at ~/openpak-saves-private/ksp-modulus.bin, the patch is also applied,
+// and OpenPak's public modulus at ~/REPOS/Openpak/.secrets/saves/ksp-modulus.bin, the patch is also applied,
 // the way hekate applies it, to the real decompressed FS .rodata; otherwise those checks say SKIP.
 #include "ksp.h"
 #include <assert.h>
@@ -322,7 +322,7 @@ int main(void) {
     uint8_t *mod = NULL;
     const char *home = getenv("HOME");
     char path[512];
-    snprintf(path, sizeof(path), "%s/openpak-saves-private/ksp-modulus.bin", home ? home : "");
+    snprintf(path, sizeof(path), "%s/REPOS/Openpak/.secrets/saves/ksp-modulus.bin", home ? home : "");
     if ((mod = slurp(path, &n))) {
         assert(n == 256 && !memcmp(mod, openpak_ksp_openpak, 256));
         printf("ksp: OpenPak modulus matches %s\n", path);
