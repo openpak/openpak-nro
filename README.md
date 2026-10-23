@@ -74,7 +74,7 @@ sysmodule covers geo, telemetry, account and the gateway, because the title puts
 through `nn::ssl`. It does **not** cover the game-server connection: that one leg is handled
 inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no console-side
 certificate can extend. The server sides that one as `ws://` instead, so no certificate is
-involved — see `servers/battlenet/docs/d2r-protocol.md`.
+involved — see `platforms/switch/games/battlenet/docs/d2r-protocol.md`.
 
 ## Store installs and the firmware gate (0.3.15, 23.x in 0.3.18)
 

@@ -26,6 +26,7 @@ title turns out to need once something of ours does answer.
 | `launchercontent.mojang.com` | Minecraft Dungeons | 2026-08-31 | |
 | `vortex.data.microsoft.com` | Minecraft Dungeons | 2026-08-31 | |
 | `3f284.playfabapi.com` | We Were Here — Microsoft PlayFab (title `3F284`) | 2026-10-10 | Multiplayer sweep: resolved to a Microsoft address and opened TLS to it. Family `.playfabapi.com` is claimed from signed ceiling v5 on; nx-baas answers every call with PlayFab's own ServiceUnavailable (503, errorCode 1123) until a PlayFab service exists. Minecraft Dungeons also uses PlayFab. |
+| `master.shirogames.com` | Northgard (0100A9E00D97A000, v1.2.0) — Shiro backend master | 2026-10-13 | Harbor run: the game's only server contact, once at boot — `sfdnsres` resolved it to the real address (178.33.233.205, unclaimed so nothing redirected it), then a stream socket plus an `nn::ssl` connection. No NEX/NPLN/LDN marker in the native main; the API shapes live in the HashLink bytecode (`servers/shiro/docs/protocol.md`). Family `.shirogames.com` not yet claimed: claiming it is `openpak-policy ceiling add switch .shirogames.com`, then the platforms.yml entry, the Traefik SNI route to `shirod`, and the testdata envelope refresh in the same change (drift_test enforces the order). |
 
 ## Serving one
 
