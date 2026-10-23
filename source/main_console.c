@@ -183,7 +183,7 @@ int main(int argc, char **argv) {
         int age = openpak_package_outdated();
         if (age == 2)
             snprintf(status, sizeof(status), "%s", "OpenPak's boot package is from Atmosphere 1.11.2: install "
-                     "Atmosphere 1.12.0 and select OpenPak again before updating the firmware.");
+                     "Atmosphere 1.12.1 and select OpenPak again before updating the firmware.");
         else if (age == 1)
             snprintf(status, sizeof(status), "%s", "OpenPak's boot package is out of date: select OpenPak again "
                      "and restart.");
