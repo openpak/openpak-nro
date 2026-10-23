@@ -21,6 +21,6 @@ This checks certificate delivery, not Stardew's TLS or multiplayer success.
 
 Provenance: certificate IDs independently read from the user's matching game
 binary, documented in the workspace's
-`docs/switch/stardew-native-2321-4992-2026-09-12.md`. Service calls and returned
+internal research notes. Service calls and returned
 buffer layout use the public
 [libnx SSL API](https://github.com/switchbrew/libnx/blob/master/nx/include/switch/services/ssl.h).
