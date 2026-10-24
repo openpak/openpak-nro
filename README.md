@@ -85,11 +85,25 @@ Untested on hardware as of 2026-09-23.
 Selecting **OpenPak** also installs `exefs_patches/openpak_ctr_key`: Crash Team Racing
 Nitro-Fueled checks its Demonware login replies against a key in its own code, which no
 console-level trust reaches, so this data-only IPS swaps that key for OpenPak's (the matching
-private key signs on `servers/demonware`). It is the only game patch OpenPak ships, keyed to
+private key signs on `servers/demonware`). It is one of the documented game-patch exceptions (see also PvZ below), keyed to
 the final update's build id (`1C689518406930512C13DDF4217E7676`); details and evidence in
 `servers/demonware/tools/ctr-key-patch`. Selecting Nintendo removes it. A patched CTR
 rejects real Demonware's replies, so it only makes sense once the Demonware hostnames point at
 OpenPak. Untested on hardware as of 2026-09-23.
+
+## Plants vs. Zombies: Battle for Neighborville CA (2026-10-24)
+
+Selecting **OpenPak** also installs `exefs_patches/openpak_pvz_ca`. The title does all its EA
+TLS (the gosredirector, the CA service, Blaze) through EA's DirtySDK, which trusts only a CA
+list built into the game and never the console's certificate store, so no console-level trust
+reaches it. It is the documented PvZ exception to "no game patches" (owner decision,
+2026-10-24): a data-only IPS that replaces one entry of that list, EA's "GOS 2015 Certificate
+Authority", with the OpenPak CA's name and public key, and leaves every instruction as shipped.
+It is keyed to update v1.0.4's build id (`5AD255D6667B6EB5BDCF74B74BCD2602`); the file comes
+from `platforms/switch/games/plants-vs-zombies/tools/pvz-ca`, regenerate it there when the CA
+changes. Selecting Nintendo removes it. A patched game no longer trusts EA's GOS 2015
+certificates, so it only makes sense with the `.ea.com` family on OpenPak. Untested on hardware
+as of 2026-10-24.
 
 ## Diablo II: Resurrected (2026-09-20)
 
