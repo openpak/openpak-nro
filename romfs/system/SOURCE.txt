@@ -27,7 +27,7 @@ loader-1.12.1.kip and fusee-1.12.1.bin (OpenPak store trust)
   shell event API, which libnx 4.12.0 lacks). The stamp is pinned so a rebuild should give the
   same fusee.bin and KIPs differing only in their 20-byte GNU build IDs (which hash the absolute
   build path in the debug information); a second build has not been compared yet.
-  sha256 ams_mitm-1.12.1.kip 258f90257ee7b4f33dff0f9ed05151120d2d9d864dfed1ab2e8a1b9760943a7c
+  sha256 ams_mitm-1.12.1.kip 2787e80ba91ccd3529533f906896c95c3963036b07e2ad9ea323a553dbb3b264
   sha256 loader-1.12.1.kip   53c77a6b494379d889b0b604f69ab43437e169a013c4d84d8961ffbd014d24a3
   sha256 fusee-1.12.1.bin    b2931945873aa663edaa60970592aeaa717eba863cce220f2d46bf33bfe36b76
   fusee.bin is used with the MTC overlays already in the official package3 (the same as 1.11.2's);
