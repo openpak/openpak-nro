@@ -1,0 +1,661 @@
+diff --git a/stratosphere/ams_mitm/source/amsmitm_module_management.cpp b/stratosphere/ams_mitm/source/amsmitm_module_management.cpp
+index c8087a0..29141d9 100644
+--- a/stratosphere/ams_mitm/source/amsmitm_module_management.cpp
++++ b/stratosphere/ams_mitm/source/amsmitm_module_management.cpp
+@@ -23,6 +23,7 @@
+ #include "bpc_mitm/bpc_ams_module.hpp"
+ #include "ns_mitm/nsmitm_module.hpp"
+ #include "dns_mitm/dnsmitm_module.hpp"
++#include "bsd_mitm/bsdmitm_module.hpp"
+ #include "sysupdater/sysupdater_module.hpp"
+ #include "mitm_pm/mitm_pm_module.hpp"
+ 
+@@ -37,6 +38,7 @@ namespace ams::mitm {
+             ModuleId_BpcAms,
+             ModuleId_NsMitm,
+             ModuleId_DnsMitm,
++            ModuleId_BsdMitm,
+             ModuleId_Sysupdater,
+             ModuleId_PmService,
+ 
+@@ -71,6 +73,7 @@ namespace ams::mitm {
+             GetModuleDefinition<bpc_ams::MitmModule>(),
+             GetModuleDefinition<ns::MitmModule>(),
+             GetModuleDefinition<socket::resolver::MitmModule>(),
++            GetModuleDefinition<bsd::MitmModule>(),
+             GetModuleDefinition<sysupdater::MitmModule>(),
+             GetModuleDefinition<pm::MitmModule>(),
+         };
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsd_shim.c b/stratosphere/ams_mitm/source/bsd_mitm/bsd_shim.c
+new file mode 100644
+index 0000000..2e9cbe4
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsd_shim.c
+@@ -0,0 +1,72 @@
++/*
++ * bsd:u command forwarders for OpenPak's ip redirect mitm.
++ * Command ids and buffer types as libnx's bsd.c uses them.
++ */
++#include "bsd_shim.h"
++#include <stratosphere/sf/sf_mitm_dispatch.h>
++
++typedef struct {
++    s32 ret;
++    s32 errno_;
++} BsdOut;
++
++Result bsdConnectFwd(Service *s, s32 fd, const void *addr, size_t addr_size, s32 *out_ret, s32 *out_errno) {
++    BsdOut out;
++    Result rc = serviceMitmDispatchInOut(s, 14, fd, out,
++        .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_In },
++        .buffers = { { addr, addr_size } },
++    );
++    if (R_SUCCEEDED(rc)) {
++        *out_ret = out.ret;
++        *out_errno = out.errno_;
++    }
++    return rc;
++}
++
++Result bsdSendToFwd(Service *s, s32 fd, s32 flags, const void *msg, size_t msg_size, const void *addr, size_t addr_size, s32 *out_ret, s32 *out_errno) {
++    const struct {
++        s32 fd;
++        s32 flags;
++    } in = { fd, flags };
++    BsdOut out;
++    Result rc = serviceMitmDispatchInOut(s, 11, in, out,
++        .buffer_attrs = {
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
++            SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
++        },
++        .buffers = { { msg, msg_size }, { addr, addr_size } },
++    );
++    if (R_SUCCEEDED(rc)) {
++        *out_ret = out.ret;
++        *out_errno = out.errno_;
++    }
++    return rc;
++}
++
++Result bsdGetPeerNameFwd(Service *s, s32 fd, void *addr, size_t addr_size, s32 *out_ret, s32 *out_errno, u32 *out_addr_len) {
++    struct {
++        s32 ret;
++        s32 errno_;
++        u32 addr_len;
++    } out;
++    Result rc = serviceMitmDispatchInOut(s, 15, fd, out,
++        .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
++        .buffers = { { addr, addr_size } },
++    );
++    if (R_SUCCEEDED(rc)) {
++        *out_ret = out.ret;
++        *out_errno = out.errno_;
++        *out_addr_len = out.addr_len;
++    }
++    return rc;
++}
++
++Result bsdCloseFwd(Service *s, s32 fd, s32 *out_ret, s32 *out_errno) {
++    BsdOut out;
++    Result rc = serviceMitmDispatchInOut(s, 26, fd, out);
++    if (R_SUCCEEDED(rc)) {
++        *out_ret = out.ret;
++        *out_errno = out.errno_;
++    }
++    return rc;
++}
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsd_shim.h b/stratosphere/ams_mitm/source/bsd_mitm/bsd_shim.h
+new file mode 100644
+index 0000000..94ed236
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsd_shim.h
+@@ -0,0 +1,21 @@
++/**
++ * @file bsd_shim.h
++ * @brief bsd:u command forwarders for OpenPak's ip redirect mitm.
++ * @copyright libnx Authors
++ */
++#pragma once
++#include <switch.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Each returns the IPC result; *out_ret and *out_errno are bsd's own answer. */
++Result bsdConnectFwd(Service *s, s32 fd, const void *addr, size_t addr_size, s32 *out_ret, s32 *out_errno);
++Result bsdSendToFwd(Service *s, s32 fd, s32 flags, const void *msg, size_t msg_size, const void *addr, size_t addr_size, s32 *out_ret, s32 *out_errno);
++Result bsdGetPeerNameFwd(Service *s, s32 fd, void *addr, size_t addr_size, s32 *out_ret, s32 *out_errno, u32 *out_addr_len);
++Result bsdCloseFwd(Service *s, s32 fd, s32 *out_ret, s32 *out_errno);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_module.cpp b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_module.cpp
+new file mode 100644
+index 0000000..20c92d3
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_module.cpp
+@@ -0,0 +1,104 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#include <stratosphere.hpp>
++#include "../amsmitm_initialization.hpp"
++#include "bsdmitm_module.hpp"
++#include "bsdmitm_service.hpp"
++
++namespace ams::mitm::bsd {
++
++    namespace {
++
++        enum PortIndex {
++            PortIndex_Mitm,
++            PortIndex_Count,
++        };
++
++        constexpr sm::ServiceName BsdMitmServiceName = sm::ServiceName::Encode("bsd:u");
++
++        constexpr size_t MaxSessions = 32;
++
++        struct ServerOptions {
++            static constexpr size_t PointerBufferSize   = sf::hipc::DefaultServerManagerOptions::PointerBufferSize;
++            static constexpr size_t MaxDomains          = sf::hipc::DefaultServerManagerOptions::MaxDomains;
++            static constexpr size_t MaxDomainObjects    = sf::hipc::DefaultServerManagerOptions::MaxDomainObjects;
++            static constexpr bool CanDeferInvokeRequest = sf::hipc::DefaultServerManagerOptions::CanDeferInvokeRequest;
++            static constexpr bool CanManageMitmServers  = true;
++        };
++
++        class ServerManager final : public sf::hipc::ServerManager<PortIndex_Count, ServerOptions, MaxSessions> {
++            private:
++                virtual Result OnNeedsToAccept(int port_index, Server *server) override;
++        };
++
++        ServerManager g_server_manager;
++
++        Result ServerManager::OnNeedsToAccept(int port_index, Server *server) {
++            /* Acknowledge the mitm session. */
++            std::shared_ptr<::Service> fsrv;
++            sm::MitmProcessInfo client_info;
++            server->AcknowledgeMitmSession(std::addressof(fsrv), std::addressof(client_info));
++
++            switch (port_index) {
++                case PortIndex_Mitm:
++                    R_RETURN(this->AcceptMitmImpl(server, sf::CreateSharedObjectEmplaced<IBsdMitm, BsdMitmService>(decltype(fsrv)(fsrv), client_info), fsrv));
++                AMS_UNREACHABLE_DEFAULT_CASE();
++            }
++        }
++
++        /* Every command the mitm does not override is forwarded synchronously, so a blocking
++         * recv, accept or poll holds one of these threads until bsd answers it. The program's
++         * concurrent blocking calls need a thread each. */
++        constexpr size_t TotalThreads = 12;
++        static_assert(TotalThreads >= 1, "TotalThreads");
++        constexpr size_t NumExtraThreads = TotalThreads - 1;
++        constexpr size_t ThreadStackSize = mitm::ModuleTraits<bsd::MitmModule>::StackSize;
++        alignas(os::MemoryPageSize) u8 g_extra_thread_stacks[NumExtraThreads][ThreadStackSize];
++
++        os::ThreadType g_extra_threads[NumExtraThreads];
++
++        void LoopServerThread(void *) {
++            g_server_manager.LoopProcess();
++        }
++
++        void ProcessForServerOnAllThreads() {
++            const s32 priority = os::GetThreadCurrentPriority(os::GetCurrentThread());
++            for (size_t i = 0; i < NumExtraThreads; i++) {
++                R_ABORT_UNLESS(os::CreateThread(g_extra_threads + i, LoopServerThread, nullptr, g_extra_thread_stacks[i], ThreadStackSize, priority));
++            }
++            for (size_t i = 0; i < NumExtraThreads; i++) {
++                os::StartThread(g_extra_threads + i);
++            }
++            LoopServerThread(nullptr);
++            for (size_t i = 0; i < NumExtraThreads; i++) {
++                os::WaitThread(g_extra_threads + i);
++            }
++        }
++
++    }
++
++    void MitmModule::ThreadFunction(void *) {
++        /* Wait until initialization is complete (the SD card is mounted). */
++        mitm::WaitInitialized();
++
++        /* Programs without a rule are never taken over (BsdMitmService::ShouldMitm), so
++         * registering costs them nothing but the query. */
++        R_ABORT_UNLESS((g_server_manager.RegisterMitmServer<BsdMitmService>(PortIndex_Mitm, BsdMitmServiceName)));
++
++        ProcessForServerOnAllThreads();
++    }
++
++}
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_module.hpp b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_module.hpp
+new file mode 100644
+index 0000000..0e6bc21
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_module.hpp
+@@ -0,0 +1,24 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#pragma once
++#include <stratosphere.hpp>
++#include "../amsmitm_module.hpp"
++
++namespace ams::mitm::bsd {
++
++    DEFINE_MITM_MODULE_CLASS(0x2000, AMS_GET_SYSTEM_THREAD_PRIORITY(socket, ResolverIpcServer) - 1);
++
++}
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_redirects.cpp b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_redirects.cpp
+new file mode 100644
+index 0000000..5607fdb
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_redirects.cpp
+@@ -0,0 +1,153 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#include <stratosphere.hpp>
++#include "../amsmitm_fs_utils.hpp"
++#include "bsdmitm_redirects.hpp"
++
++namespace ams::mitm::bsd {
++
++    namespace {
++
++        constexpr const char RulesPath[] = "/config/openpak/ip_redirects.txt";
++        constexpr size_t MaxRules = 32;
++        constexpr size_t MaxFileSize = 0x2000;
++
++        struct Rule {
++            u64 program_id;
++            bool tcp;
++            Endpoint from;
++            Endpoint to;
++        };
++
++        constinit os::SdkMutex g_lock;
++        constinit Rule g_rules[MaxRules];
++        constinit size_t g_num_rules = 0;
++        constinit char g_file_buffer[MaxFileSize + 1];
++
++        u16 Swap16(u16 v) { return static_cast<u16>((v << 8) | (v >> 8)); }
++
++        bool ParseNumber(const char *&p, u64 max, int base, u64 *out) {
++            u64 v = 0;
++            int digits = 0;
++            while (true) {
++                const char c = *p;
++                int d;
++                if (c >= '0' && c <= '9') { d = c - '0'; }
++                else if (base == 16 && c >= 'a' && c <= 'f') { d = c - 'a' + 10; }
++                else if (base == 16 && c >= 'A' && c <= 'F') { d = c - 'A' + 10; }
++                else { break; }
++                v = v * base + d;
++                if (v > max || ++digits > 16) { return false; }
++                ++p;
++            }
++            *out = v;
++            return digits > 0;
++        }
++
++        bool ParseEndpoint(const char *&p, Endpoint *out) {
++            u32 ip = 0;
++            for (int i = 0; i < 4; ++i) {
++                u64 octet;
++                if (!ParseNumber(p, 255, 10, std::addressof(octet))) { return false; }
++                ip = (ip << 8) | static_cast<u32>(octet);
++                if (i < 3) {
++                    if (*p != '.') { return false; }
++                    ++p;
++                }
++            }
++            if (*p != ':') { return false; }
++            ++p;
++            u64 port;
++            if (!ParseNumber(p, 65535, 10, std::addressof(port)) || port == 0) { return false; }
++            /* Stored in network order, as a guest sockaddr_in holds them. */
++            out->address = __builtin_bswap32(ip);
++            out->port    = Swap16(static_cast<u16>(port));
++            return true;
++        }
++
++        void SkipSpaces(const char *&p) { while (*p == ' ' || *p == '\t') { ++p; } }
++
++        /* One line; a malformed line is skipped (fetchd only writes verified rules). */
++        bool ParseLine(const char *p, Rule *out) {
++            SkipSpaces(p);
++            if (std::strncmp(p, "tcp", 3) == 0) { out->tcp = true; }
++            else if (std::strncmp(p, "udp", 3) == 0) { out->tcp = false; }
++            else { return false; }
++            p += 3;
++            SkipSpaces(p);
++            if (!ParseNumber(p, std::numeric_limits<u64>::max(), 16, std::addressof(out->program_id))) { return false; }
++            SkipSpaces(p);
++            if (!ParseEndpoint(p, std::addressof(out->from))) { return false; }
++            SkipSpaces(p);
++            if (!ParseEndpoint(p, std::addressof(out->to))) { return false; }
++            SkipSpaces(p);
++            return *p == '\x00' || *p == '\r' || *p == '#';
++        }
++
++        void ReloadLocked() {
++            g_num_rules = 0;
++            ::FsFile file;
++            if (R_FAILED(mitm::fs::OpenAtmosphereSdFile(std::addressof(file), RulesPath, ams::fs::OpenMode_Read))) {
++                return;
++            }
++            ON_SCOPE_EXIT { ::fsFileClose(std::addressof(file)); };
++            s64 size = 0;
++            if (R_FAILED(::fsFileGetSize(std::addressof(file), std::addressof(size))) || size <= 0 || size > static_cast<s64>(MaxFileSize)) {
++                return;
++            }
++            u64 read = 0;
++            if (R_FAILED(::fsFileRead(std::addressof(file), 0, g_file_buffer, size, ::FsReadOption_None, std::addressof(read))) || read != static_cast<u64>(size)) {
++                return;
++            }
++            g_file_buffer[size] = '\x00';
++
++            char *line = g_file_buffer;
++            while (line != nullptr && *line != '\x00' && g_num_rules < MaxRules) {
++                char *next = std::strchr(line, '\n');
++                if (next != nullptr) { *next++ = '\x00'; }
++                if (*line != '#' && ParseLine(line, g_rules + g_num_rules)) {
++                    ++g_num_rules;
++                }
++                line = next;
++            }
++        }
++
++    }
++
++    bool ReloadAndHasProgram(ncm::ProgramId program_id) {
++        std::scoped_lock lk(g_lock);
++        ReloadLocked();
++        for (size_t i = 0; i < g_num_rules; ++i) {
++            if (g_rules[i].program_id == program_id.value) {
++                return true;
++            }
++        }
++        return false;
++    }
++
++    bool FindRedirect(ncm::ProgramId program_id, bool tcp, const Endpoint &from, Endpoint *out) {
++        std::scoped_lock lk(g_lock);
++        for (size_t i = 0; i < g_num_rules; ++i) {
++            const Rule &r = g_rules[i];
++            if (r.program_id == program_id.value && r.tcp == tcp && r.from.address == from.address && r.from.port == from.port) {
++                *out = r.to;
++                return true;
++            }
++        }
++        return false;
++    }
++
++}
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_redirects.hpp b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_redirects.hpp
+new file mode 100644
+index 0000000..b99eb41
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_redirects.hpp
+@@ -0,0 +1,37 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#pragma once
++#include <stratosphere.hpp>
++
++/* OpenPak: destinations a title dials as a hard-coded IPv4 address, rewritten to the address the
++ * signed ceiling names (its "ip_redirects"). openpak-fetchd verifies the ceiling and writes the
++ * rules to /atmosphere/config/openpak/ip_redirects.txt, one per line:
++ *     <tcp|udp> <program id, 16 hex digits> <a.b.c.d:port> <e.f.g.h:port>
++ * Only a listed program's bsd:u sessions are taken over, and only a listed destination changes. */
++namespace ams::mitm::bsd {
++
++    struct Endpoint {
++        u32 address; /* network byte order, as in a sockaddr_in */
++        u16 port;    /* network byte order */
++    };
++
++    /* Re-reads the rules file; true when it lists the program. */
++    bool ReloadAndHasProgram(ncm::ProgramId program_id);
++
++    /* The target for a destination of this program, or false when it is not listed. */
++    bool FindRedirect(ncm::ProgramId program_id, bool tcp, const Endpoint &from, Endpoint *out);
++
++}
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_service.cpp b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_service.cpp
+new file mode 100644
+index 0000000..441046f
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_service.cpp
+@@ -0,0 +1,129 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#include <stratosphere.hpp>
++#include "bsdmitm_service.hpp"
++#include "bsd_shim.h"
++
++namespace ams::mitm::bsd {
++
++    namespace {
++
++        /* A guest sockaddr_in (FreeBSD layout). */
++        struct SockAddrIn {
++            u8 len;
++            u8 family;
++            u16 port;
++            u32 address;
++            u8 zero[8];
++        };
++        static_assert(sizeof(SockAddrIn) == 0x10);
++        constexpr u8 AfInet = 2;
++
++        /* Sockets a redirected connect went out on, so getpeername keeps the dialled address.
++         * Descriptors belong to a process, and a process may hold several bsd:u sessions. */
++        struct Peer {
++            u64 process_id;
++            s32 fd;
++            SockAddrIn dialled;
++        };
++        constexpr size_t MaxPeers = 64;
++        constinit os::SdkMutex g_peer_lock;
++        constinit Peer g_peers[MaxPeers];
++        constinit size_t g_num_peers = 0;
++
++        void ForgetPeer(u64 process_id, s32 fd) {
++            std::scoped_lock lk(g_peer_lock);
++            for (size_t i = 0; i < g_num_peers; ++i) {
++                if (g_peers[i].process_id == process_id && g_peers[i].fd == fd) {
++                    g_peers[i] = g_peers[--g_num_peers];
++                    return;
++                }
++            }
++        }
++
++        void RememberPeer(u64 process_id, s32 fd, const SockAddrIn &dialled) {
++            ForgetPeer(process_id, fd);
++            std::scoped_lock lk(g_peer_lock);
++            if (g_num_peers < MaxPeers) {
++                g_peers[g_num_peers++] = Peer{ process_id, fd, dialled };
++            }
++        }
++
++        bool FindPeer(u64 process_id, s32 fd, SockAddrIn *out) {
++            std::scoped_lock lk(g_peer_lock);
++            for (size_t i = 0; i < g_num_peers; ++i) {
++                if (g_peers[i].process_id == process_id && g_peers[i].fd == fd) {
++                    *out = g_peers[i].dialled;
++                    return true;
++                }
++            }
++            return false;
++        }
++
++        /* The rewritten copy of a guest address when a rule lists it. */
++        bool Rewrite(ncm::ProgramId program_id, bool tcp, const sf::InAutoSelectBuffer &addr, SockAddrIn *out) {
++            if (addr.GetSize() < sizeof(SockAddrIn)) {
++                return false;
++            }
++            std::memcpy(out, addr.GetPointer(), sizeof(SockAddrIn));
++            if (out->family != AfInet) {
++                return false;
++            }
++            Endpoint to;
++            if (!FindRedirect(program_id, tcp, Endpoint{ out->address, out->port }, std::addressof(to))) {
++                return false;
++            }
++            out->address = to.address;
++            out->port    = to.port;
++            return true;
++        }
++
++    }
++
++    Result BsdMitmService::Connect(sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd, const sf::InAutoSelectBuffer &addr) {
++        SockAddrIn rewritten;
++        const bool redirected = Rewrite(m_client_info.program_id, true, addr, std::addressof(rewritten));
++        if (redirected) {
++            RememberPeer(m_client_info.process_id.value, fd, *reinterpret_cast<const SockAddrIn *>(addr.GetPointer()));
++        } else {
++            ForgetPeer(m_client_info.process_id.value, fd);
++        }
++        const void *buf = redirected ? static_cast<const void *>(std::addressof(rewritten)) : static_cast<const void *>(addr.GetPointer());
++        R_RETURN(bsdConnectFwd(m_forward_service.get(), fd, buf, redirected ? sizeof(rewritten) : addr.GetSize(), out_ret.GetPointer(), out_errno.GetPointer()));
++    }
++
++    Result BsdMitmService::SendTo(sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd, s32 flags, const sf::InAutoSelectBuffer &msg, const sf::InAutoSelectBuffer &addr) {
++        SockAddrIn rewritten;
++        const bool redirected = Rewrite(m_client_info.program_id, false, addr, std::addressof(rewritten));
++        const void *buf = redirected ? static_cast<const void *>(std::addressof(rewritten)) : static_cast<const void *>(addr.GetPointer());
++        R_RETURN(bsdSendToFwd(m_forward_service.get(), fd, flags, msg.GetPointer(), msg.GetSize(), buf, redirected ? sizeof(rewritten) : addr.GetSize(), out_ret.GetPointer(), out_errno.GetPointer()));
++    }
++
++    Result BsdMitmService::GetPeerName(sf::Out<s32> out_ret, sf::Out<s32> out_errno, sf::Out<u32> out_addr_len, s32 fd, const sf::OutAutoSelectBuffer &addr) {
++        R_TRY(bsdGetPeerNameFwd(m_forward_service.get(), fd, addr.GetPointer(), addr.GetSize(), out_ret.GetPointer(), out_errno.GetPointer(), out_addr_len.GetPointer()));
++        SockAddrIn dialled;
++        if (*out_ret.GetPointer() == 0 && addr.GetSize() >= sizeof(dialled) && FindPeer(m_client_info.process_id.value, fd, std::addressof(dialled))) {
++            std::memcpy(addr.GetPointer(), std::addressof(dialled), sizeof(dialled));
++        }
++        R_SUCCEED();
++    }
++
++    Result BsdMitmService::Close(sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd) {
++        ForgetPeer(m_client_info.process_id.value, fd);
++        R_RETURN(bsdCloseFwd(m_forward_service.get(), fd, out_ret.GetPointer(), out_errno.GetPointer()));
++    }
++
++}
+diff --git a/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_service.hpp b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_service.hpp
+new file mode 100644
+index 0000000..311daad
+--- /dev/null
++++ b/stratosphere/ams_mitm/source/bsd_mitm/bsdmitm_service.hpp
+@@ -0,0 +1,45 @@
++/*
++ * Copyright (c) Atmosphère-NX
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms and conditions of the GNU General Public License,
++ * version 2, as published by the Free Software Foundation.
++ *
++ * This program is distributed in the hope it will be useful, but WITHOUT
++ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
++ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
++ * more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++#pragma once
++#include <stratosphere.hpp>
++#include "bsdmitm_redirects.hpp"
++
++/* OpenPak: bsd:u for a program the ip redirect rules list. Connect (tcp rules) and SendTo (udp
++ * rules) go to the rule's target; GetPeerName keeps reporting the address the program dialled.
++ * Every other command is forwarded untouched by the mitm framework. */
++#define AMS_BSD_MITM_INTERFACE_INFO(C, H)                                                                                                                                                                        AMS_SF_METHOD_INFO(C, H, 11, Result, SendTo,      (sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd, s32 flags, const sf::InAutoSelectBuffer &msg, const sf::InAutoSelectBuffer &addr), (out_ret, out_errno, fd, flags, msg, addr))     AMS_SF_METHOD_INFO(C, H, 14, Result, Connect,     (sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd, const sf::InAutoSelectBuffer &addr),                                         (out_ret, out_errno, fd, addr))                    AMS_SF_METHOD_INFO(C, H, 15, Result, GetPeerName, (sf::Out<s32> out_ret, sf::Out<s32> out_errno, sf::Out<u32> out_addr_len, s32 fd, const sf::OutAutoSelectBuffer &addr),             (out_ret, out_errno, out_addr_len, fd, addr))      AMS_SF_METHOD_INFO(C, H, 26, Result, Close,       (sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd),                                                                              (out_ret, out_errno, fd))
++
++AMS_SF_DEFINE_MITM_INTERFACE(ams::mitm::bsd, IBsdMitm, AMS_BSD_MITM_INTERFACE_INFO, 0x4F504B31)
++
++namespace ams::mitm::bsd {
++
++    class BsdMitmService : public sf::MitmServiceImplBase {
++        public:
++            using MitmServiceImplBase::MitmServiceImplBase;
++        public:
++            static bool ShouldMitm(const sm::MitmProcessInfo &client_info) {
++                /* Only a program the rules name: everything else keeps its direct session. */
++                return ncm::IsApplicationId(client_info.program_id) && ReloadAndHasProgram(client_info.program_id);
++            }
++        public:
++            Result SendTo(sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd, s32 flags, const sf::InAutoSelectBuffer &msg, const sf::InAutoSelectBuffer &addr);
++            Result Connect(sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd, const sf::InAutoSelectBuffer &addr);
++            Result GetPeerName(sf::Out<s32> out_ret, sf::Out<s32> out_errno, sf::Out<u32> out_addr_len, s32 fd, const sf::OutAutoSelectBuffer &addr);
++            Result Close(sf::Out<s32> out_ret, sf::Out<s32> out_errno, s32 fd);
++    };
++    static_assert(IsIBsdMitm<BsdMitmService>);
++
++}

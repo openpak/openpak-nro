@@ -14,7 +14,11 @@ ams=1.12.1   # the Atmosphere release these are built from; system.c pins its pa
 trap 'rm -rf -- "$build_dir"' EXIT
 git clone --depth 1 --branch "$ams" https://github.com/Atmosphere-NX/Atmosphere.git "$build_dir/source"
 # Firmware 23's dns.mitm (new c-ares resolver) is upstream since 1.12.1; 1.12.0 needed tools/atmosphere-dns-*.patch.
-git -C "$build_dir/source" apply "$repo_dir/tools/atmosphere-ssl.patch" "$repo_dir/tools/atmosphere-store-trust.patch"
+git -C "$build_dir/source" apply "$repo_dir/tools/atmosphere-ssl.patch" "$repo_dir/tools/atmosphere-store-trust.patch" \
+    "$repo_dir/tools/atmosphere-ip-redirect.patch"
+# atmosphere-ip-redirect.patch: a bsd:u mitm in ams_mitm that rewrites the hard-coded IPv4
+# destinations the signed ceiling lists (ip_redirects, written for it by openpak-fetchd), only for
+# the programs those rules name.
 # The git stamp is pinned to the release commit so two builds of these sources match: fusee byte
 # for byte; Loader only differs in its 20-byte GNU build ID, which hashes the absolute build path
 # held in the debug info.

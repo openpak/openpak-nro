@@ -868,10 +868,13 @@ static bool erase_tree(const char *p,int depth) {
 }
 // Everything fetchd leaves on the card, whatever gate or debug file made it: the gate first so a
 // half-done removal never keeps it writing, then the title folder, then every /atmosphere/
-// openpak-fetchd* entry (gates, .log/.log.1, .running, the state folder) and the hosts backups
-// (<file>.openpak-prev, .openpak-tmp) it keeps next to the files it rewrote.
+// openpak-fetchd* entry (gates, .log/.log.1, .running, the state folder), the hosts backups
+// (<file>.openpak-prev, .openpak-tmp) it keeps next to the files it rewrote, and its ip redirect
+// rules (/atmosphere/config/openpak/ip_redirects.txt).
 static bool fetchd_wipe(void) {
-    bool ok=erase(FETCHD_GATE) && erase(FETCHD_FLAG) && erase(FETCHD_NSP) && erase_tree(FETCHD_DIR,0);
+    // The ip redirect rules fetchd writes for the boot package's bsd mitm go with it.
+    bool ok=erase(FETCHD_GATE) && erase(FETCHD_FLAG) && erase(FETCHD_NSP) && erase_tree(FETCHD_DIR,0) &&
+            erase("/atmosphere/config/openpak/ip_redirects.txt") && erase("/atmosphere/config/openpak/ip_redirects.txt.tmp");
     const char *dirs[]={"/atmosphere","/atmosphere/hosts"};
     for(int i=0;i<2;++i) {
         char full[512];path(full,dirs[i]);

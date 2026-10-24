@@ -4,6 +4,12 @@ https://github.com/Atmosphere-NX/Atmosphere/tree/6b0c077b4c608a3a2ee712b8dc35fee
 ams_mitm-1.12.1.kip
   Local modification:
   - allow SystemProgramId::Ssl in FsMitmService::ShouldMitmProgramId (tools/atmosphere-ssl.patch).
+  - add bsd_mitm (stratosphere/ams_mitm/source/bsd_mitm, tools/atmosphere-ip-redirect.patch): a
+    bsd:u mitm for the programs listed in /atmosphere/config/openpak/ip_redirects.txt (written by
+    openpak-fetchd from the signed ceiling's ip_redirects). For those programs only, Connect (tcp
+    rules) and SendTo (udp rules) to a listed IPv4 address:port go to the rule's target, and
+    GetPeerName keeps reporting the dialled address; every other command, and every other
+    program, is untouched.
   dns.mitm for firmware 23's new resolver is upstream since 1.12.1, so no dns patch is applied.
 
 loader-1.12.1.kip and fusee-1.12.1.bin (OpenPak store trust)
@@ -15,8 +21,8 @@ loader-1.12.1.kip and fusee-1.12.1.bin (OpenPak store trust)
     FS KIP, applied only to an FS fusee identifies by hash: a tbz w0,#0 after the NCA header-1
     RSA verify becomes 1F 20 03 D5 (nop) at offset 0x26938 (FS 22.5.0, FAT32 and exFAT),
     0x279A8 (FS 23.0.0) or 0x279B8 (FS 23.0.0 exFAT).
-  Built with tools/build-system-module.sh: Atmosphere 1.12.1 with tools/atmosphere-ssl.patch and
-  tools/atmosphere-store-trust.patch applied, git stamp pinned to -6b0c077-dirty, devkitARM r68
+  Built with tools/build-system-module.sh: Atmosphere 1.12.1 with tools/atmosphere-ssl.patch,
+  tools/atmosphere-store-trust.patch and tools/atmosphere-ip-redirect.patch applied, git stamp pinned to -6b0c077-dirty, devkitARM r68
   and devkitA64 r30 (GCC 16.1), and libnx master at 146c3d1 (Atmosphere 1.12.x needs pgl's
   shell event API, which libnx 4.12.0 lacks). The stamp is pinned so a rebuild should give the
   same fusee.bin and KIPs differing only in their 20-byte GNU build IDs (which hash the absolute
@@ -28,6 +34,7 @@ loader-1.12.1.kip and fusee-1.12.1.bin (OpenPak store trust)
   a build from these sources produces the same overlays, and the build script checks that.
 
 The patches and the build script are supplied in the openpak-nro source tree:
-tools/atmosphere-ssl.patch, tools/atmosphere-store-trust.patch and tools/build-system-module.sh.
+tools/atmosphere-ssl.patch, tools/atmosphere-store-trust.patch, tools/atmosphere-ip-redirect.patch
+and tools/build-system-module.sh.
 Atmosphere's license is included as LICENSE.Atmosphere.
 These assets contain open-source Atmosphere code, not Nintendo firmware.
