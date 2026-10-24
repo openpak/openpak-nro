@@ -122,6 +122,27 @@ is one) replaces OpenPak's and store titles stop launching. After a successful e
 looks for one, the way fusee would, and names it in a warning; setup still succeeds and the file
 is never touched.
 
+## First install: the boot zip
+
+The app is itself a store title (`0x01FE000000000000`, shipped as an NSP only since the
+Switch Patcher rename), so it cannot start on a console that does not boot this package yet.
+`tools/build-boot-zip.py` (CI attaches its output to each release as
+`OpenPak-Switch-Patcher-Boot-<tag>.zip`) runs `openpak_package_build` from `source/system.c` on
+the official 1.12.1 `package3` and writes:
+
+- `atmosphere/package3-openpak`: the same bytes the OpenPak selection writes, so a later
+  selection finds the file already right instead of stopping on "boot package changed";
+- `bootloader/ini/openpak.ini`: hekate *More configs* entries **OpenPak (emuMMC)**
+  (`emummcforce=1`) and **OpenPak (sysMMC)** (`emummc_force_disable=1`), both
+  `pkg3=atmosphere/package3-openpak`. `hekate_ipl.ini` is not touched, so the app's
+  "boot configuration changed" guard is not tripped;
+- `switch/openpak/boot-package/`: `SOURCE.txt` and Atmosphère's licence.
+
+The player boots that entry once, installs the NSP with any NSP installer (the install itself
+needs no trust: ncm stores the content, only FS and Loader check it at start), starts the app
+and selects OpenPak, which points the standard hekate entries at the package. Without the zip,
+stock Atmosphère installs the NSP but cannot start it. Not yet tried on hardware.
+
 ## Companion: openpak-fetchd, a boot2 hosts updater
 
 Not part of store trust, but delivered the same way, by the same selection. `openpak_fetchd_install`
