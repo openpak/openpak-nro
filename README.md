@@ -85,7 +85,7 @@ Untested on hardware as of 2026-09-23.
 Selecting **OpenPak** also installs `exefs_patches/openpak_ctr_key`: Crash Team Racing
 Nitro-Fueled checks its Demonware login replies against a key in its own code, which no
 console-level trust reaches, so this data-only IPS swaps that key for OpenPak's (the matching
-private key signs on `servers/demonware`). It is the only game patch OpenPak ships, keyed to
+private key signs on `servers/demonware`). It is one of the two game patches OpenPak ships (the other is D2R's, below), keyed to
 the final update's build id (`1C689518406930512C13DDF4217E7676`); details and evidence in
 `servers/demonware/tools/ctr-key-patch`. Selecting Nintendo removes it. A patched CTR
 rejects real Demonware's replies, so it only makes sense once the Demonware hostnames point at
@@ -104,12 +104,19 @@ OpenPak serves nothing on. It used to be listed and deliberately off. The family
 now, so those requests fail to connect instead of failing against Blizzard — the same
 trade every other unserved name under a claimed family makes.
 
-Nothing else is needed on the console. The certificate this app already installs into the ssl
-sysmodule covers geo, telemetry, account and the gateway, because the title puts all four
-through `nn::ssl`. It does **not** cover the game-server connection: that one leg is handled
-inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no console-side
-certificate can extend. The server sides that one as `ws://` instead, so no certificate is
-involved — see `platforms/switch/games/battlenet/docs/d2r-protocol.md`.
+The certificate this app already installs into the ssl sysmodule covers geo, telemetry,
+account and the gateway, because the title puts all four through `nn::ssl`. It does **not**
+cover the game-server connection. After GameJoin the title dials its game server on TCP 443
+with its own OpenSSL and trusts only a CA bundle built into the game, which no console-side
+certificate can extend. So selecting **OpenPak** also installs
+`exefs_patches/openpak_d2r_trust`. It is the documented D2R exception to "no game patches"
+(owner decision, 2026-09-30 and 2026-10-24): a data-only IPS that replaces that bundle with
+OpenPak's CA and leaves every instruction as shipped. It covers two build ids: the base game
+`4DE22400C997ED2373F0643E9FE9B079DB0E8D72` and the update v1.0.34
+`DB0507F36B84200AC05F75D76ED5026F903E6C9`. The files come from
+`platforms/switch/games/battlenet/tools/d2r-trust`; regenerate both there when the CA changes.
+Installing also deletes the hand-copied `exefs_patches/openpak-d2r/` files from before this
+release. Selecting Nintendo removes both. Untested on hardware through this app as of 2026-10-24.
 
 ## Store installs and the firmware gate (0.3.15, 23.x in 0.3.18)
 
