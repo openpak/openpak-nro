@@ -11,6 +11,6 @@
 void openpak_network_refresh(char *note, int notelen);
 
 // One HTTPS GET with this build's User-Agent, for the pinned origins only (the ceiling and
-// profile here, the release check in update.c): the body on 200, else NULL with err filled.
+// profile): the body on 200, else NULL with err filled.
 // Caller frees. The socket and curl must already be up, which they are inside a refresh.
 char *openpak_http_get(const char *url, size_t max, size_t *len, char *err, int errlen);

@@ -1,11 +1,12 @@
-// openpak.nro — flips a CFW Switch between Nintendo's servers and OpenPak's.
+// OpenPak Switch Patcher — flips a CFW Switch between Nintendo's servers and OpenPak's.
 //
 // Selecting Network writes a marked block of dns_mitm host rules (or takes it back out) and
 // then offers the reboot that makes it live. The address lives in /switch/openpak/server.txt
 // and is edited with the system keyboard.
 //
-// Drawn straight to the framebuffer with FreeType text: no SDL, no EGL, so it loads in applet
-// mode as well as under title takeover. Palette follows openpak.org's dark theme.
+// Ships as the OpenPak eShop title 01FE000000000000 (an NSP); the eShop delivers its updates.
+// Drawn straight to the framebuffer with FreeType text: no SDL, no EGL. Palette follows
+// openpak.org's dark theme.
 //
 // Written from scratch against libnx: no code from any other homebrew.
 #include "gfx.h"
@@ -13,7 +14,6 @@
 #include "system.h"
 #include "hosts.h"
 #include "netfetch.h"
-#include "update.h"
 #include "news.h"
 #include "nssettings.h"
 #include "installtrust.h"
@@ -152,8 +152,7 @@ static char ksp_note[160];
 // Why the hosts updater (openpak-fetchd) was not installed or not fully removed; "" when it went through.
 static char fetchd_note[160];
 
-static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking,
-                   bool offering) {
+static void render(const char *ip, bool on, int sel, const char *status, bool confirming, bool asking) {
     const int margin = 72;
     const int card_w = GFX_W - margin * 2;
 
@@ -162,7 +161,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
 
     // Header
     draw_mark(margin, 48, 56);
-    txt_draw(margin + 74, 50, PX_TITLE, TXT_LEFT, STRONG, "OpenPak");
+    txt_draw(margin + 74, 50, PX_TITLE, TXT_LEFT, STRONG, "OpenPak Switch Patcher");
     txt_draw(margin + 76, 92, PX_LABEL, TXT_LEFT, MUTED, "Network selector");
 
     const char *pill = on ? "OPENPAK" : "NINTENDO";
@@ -191,7 +190,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
     int msg_y = card_y + card_h + 26;
     if (status[0]) {
         gfx_rounded(margin, msg_y, card_w, 56, 12, RAISED);
-        gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking || offering) ? WARN : ACCENT);
+        gfx_rounded_outline(margin, msg_y, card_w, 56, 12, (confirming || asking) ? WARN : ACCENT);
         txt_draw(margin + 24, msg_y + 16, PX_BODY, TXT_LEFT, INK, "%s", status);
         if (loader_note[0]) txt_draw(margin, msg_y + 76, PX_LABEL, TXT_LEFT, WARN, "%s", loader_note);
         int note_y = msg_y + (loader_note[0] ? 102 : 76);
@@ -245,9 +244,6 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
         x += draw_hint(x, 628, "B", "Don't send");
         x += draw_hint(x, 628, "X", "Always");
         draw_hint(x, 628, "Y", "Never");
-    } else if (offering) {
-        x += draw_hint(x, 628, "A", "Update");
-        draw_hint(x, 628, "B", "Not now");
     } else if (confirming) {
         x += draw_hint(x, 628, "A", "Reboot now");
         draw_hint(x, 628, "B", "Later");
@@ -259,9 +255,7 @@ static void render(const char *ip, bool on, int sel, const char *status, bool co
     gfx_end();
 }
 
-int main(int argc, char **argv) {
-    // argv[0] is where hbmenu loaded this NRO from: the file an update replaces.
-    openpak_update_self(argc > 0 ? argv[0] : NULL);
+int main(void) {
     romfsInit();          // the CA bundle we ship lives in romfs:/
     plInitialize(PlServiceType_User);
     openpak_report_init("sdl");
@@ -280,12 +274,10 @@ int main(int argc, char **argv) {
     char status[192] = "";
     bool on = openpak_enabled();
     // Online check first, so what the tool would install is openpak.org's current set.
-    render(OPENPAK_SERVER, on, on ? IT_OPENPAK : IT_NINTENDO, "Checking openpak.org for network updates...", false, false, false);
+    render(OPENPAK_SERVER, on, on ? IT_OPENPAK : IT_NINTENDO, "Checking openpak.org for network updates...", false, false);
     openpak_network_refresh(net_note, sizeof(net_note));
     load_ip(ip, sizeof(ip));
     bool confirm_reboot = false;
-    // The release check ran inside the refresh above; the offer waits behind the report question.
-    bool offer_update = openpak_update_tag()[0] != '\0', update_asked = false;
     int sel = on ? IT_OPENPAK : IT_NINTENDO;
     // A console that was on OpenPak and has since been updated to a firmware it does not know is in an
     // unsupported state: warn at launch and point at the fix (select Nintendo, which
@@ -321,7 +313,7 @@ int main(int argc, char **argv) {
             if (down & (HidNpadButton_A | HidNpadButton_X)) {
                 if (down & HidNpadButton_X) openpak_report_set_consent(REPORT_ALWAYS);
                 snprintf(status, sizeof(status), "Sending report...");
-                render(ip, on, sel, status, false, false, false);
+                render(ip, on, sel, status, false, false);
                 openpak_report_send_all(status, sizeof(status));
                 asking = false;
             } else if (down & HidNpadButton_B) {
@@ -332,23 +324,6 @@ int main(int argc, char **argv) {
                 openpak_report_set_consent(REPORT_NEVER);
                 snprintf(status, sizeof(status), "Reports turned off. Nothing was sent.");
                 asking = false;
-            }
-        } else if (offer_update) {
-            if (down & HidNpadButton_A) {
-                snprintf(status, sizeof(status), "Downloading OpenPak %s...", openpak_update_tag());
-                render(ip, on, sel, status, false, false, false);
-                char msg[192] = "";
-                int done = openpak_update_apply(msg, sizeof(msg));
-                offer_update = false;
-                snprintf(status, sizeof(status), "%s", msg);
-                if (done > 0) {                          // the new build takes over as this exits
-                    render(ip, on, sel, status, false, false, false);
-                    break;
-                }
-                if (done < 0) openpak_report_failure("update", NULL, msg);
-            } else if (down & HidNpadButton_B) {
-                offer_update = false;
-                status[0] = '\0';
             }
         } else if (confirm_reboot) {
             if (down & HidNpadButton_A) reboot_console();
@@ -368,7 +343,7 @@ int main(int argc, char **argv) {
             if (want_openpak && !openpak_firmware_supported(fw, sizeof(fw))) {
                 snprintf(status, sizeof(status),
                          "OpenPak requires firmware " OPENPAK_FIRMWARE " — this console runs %s", fw);
-                render(ip, on, sel, status, confirm_reboot, asking, offer_update);
+                render(ip, on, sel, status, confirm_reboot, asking);
                 continue;
             }
             // Selecting the network already in use re-applies it rather than refusing: that is
@@ -431,14 +406,7 @@ int main(int argc, char **argv) {
                 asking = openpak_report_offer(status, sizeof(status), status);
             }
         }
-        // The update question claims the line once the report question is answered: it is the
-        // one prompt that may fix whatever else the line would have said.
-        if (offer_update && !asking && !update_asked) {
-            snprintf(status, sizeof(status), "OpenPak %s is available. Download and restart?",
-                     openpak_update_tag());
-            update_asked = true;
-        }
-        render(ip, on, sel, status, confirm_reboot, asking, offer_update);
+        render(ip, on, sel, status, confirm_reboot, asking);
     }
 
     txt_exit();

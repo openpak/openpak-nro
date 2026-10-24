@@ -1,8 +1,10 @@
-# openpak.nro — libnx + SDL2 + SDL2_ttf. Build with devkitA64:
+# OpenPak Switch Patcher — libnx + FreeType. Build the program with devkitA64:
 #   podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make
+# It reaches consoles only as the NSP (OpenPak eShop title 01FE000000000000): `make nsp`, on the
+# workstation that holds the console keys, wraps switch-patcher.nro in it (tools/build-nsp.sh).
 .SUFFIXES:
 # `make test` and `make clean` are host-side and must work without devkitPro.
-ifeq ($(filter test clean,$(MAKECMDGOALS)),)
+ifeq ($(filter test clean nsp,$(MAKECMDGOALS)),)
 ifeq ($(strip $(DEVKITPRO)),)
 $(error DEVKITPRO is not set — build inside the devkitpro/devkita64 image)
 endif
@@ -13,13 +15,11 @@ APP_ICON := $(TOPDIR)/icon.jpg
 include $(DEVKITPRO)/libnx/switch_rules
 endif
 
-# UI=sdl (styled, needs title takeover) or UI=console (text, loads in applet mode).
-UI       ?= sdl
-TARGET   := openpak$(if $(filter console,$(UI)),-console,)
+TARGET   := switch-patcher
 BUILD    := build
 SOURCES  := source
 INCLUDES := source
-APP_TITLE   := OpenPak
+APP_TITLE   := OpenPak Switch Patcher
 APP_AUTHOR  := OpenPak
 # The release workflow passes the tag (make APP_VERSION=0.3.11); a local build takes it from git.
 # Never bumped by hand: v0.3.10 shipped reporting itself as 0.3.9.
@@ -30,16 +30,14 @@ ROMFS    := romfs
 
 PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
 ARCH    := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
-# OPENPAK_ASSET is this build's file name in a release: what the self-update downloads.
 CFLAGS  := -g -Wall -Wextra -O2 -ffunction-sections $(ARCH) $(DEFINES) -DOPENPAK_VERSION=\"$(APP_VERSION)\" \
-           -DOPENPAK_ASSET=\"$(TARGET).nro\" \
            $(shell $(PKGCONF) --cflags freetype2 2>/dev/null) -D__SWITCH__ $(INCLUDE)
 LDFLAGS  = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 # Let pkg-config resolve the SDL2/FreeType/HarfBuzz chain — hand-written link orders rot
 # every time a portlib changes what it depends on.
 # FreeType only: text is rasterised into the framebuffer, so there is no SDL/EGL/mesa here and
 # the NRO loads in applet mode.
-LIBS    := $(if $(filter console,$(UI)),,$(shell $(PKGCONF) --static --libs freetype2 2>/dev/null)) -lcurl -lz -ljson-c -lnx -lm
+LIBS    := $(shell $(PKGCONF) --static --libs freetype2 2>/dev/null) -lcurl -lz -ljson-c -lnx -lm
 LIBDIRS := $(PORTLIBS) $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -47,10 +45,9 @@ export OUTPUT   := $(CURDIR)/$(TARGET)
 export TOPDIR   := $(CURDIR)
 export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 export DEPSDIR  := $(CURDIR)/$(BUILD)
-# hosts_test.c is the host-side check; it must not go into the NRO.
-# One UI per build; hosts_test.c is the host-side check and never goes into an NRO.
-UI_SKIP  := hosts_test.c ceiling_test.c system_test.c installtrust_test.c report_test.c update_test.c ksp_test.c nssettings_test.c $(if $(filter console,$(UI)),main.c gfx.c text.c,main_console.c)
-CFILES   := $(filter-out $(UI_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
+# The *_test.c files are host-side checks and never go into the program.
+TEST_SKIP := hosts_test.c ceiling_test.c system_test.c installtrust_test.c report_test.c ksp_test.c nssettings_test.c
+CFILES   := $(filter-out $(TEST_SKIP),$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                   $(foreach dir,$(LIBDIRS),-I$(dir)/include) -I$(CURDIR)/$(BUILD)
@@ -62,9 +59,8 @@ export LD := $(CC)
 export NROFLAGS := --nacp=$(CURDIR)/$(TARGET).nacp --icon=$(APP_ICON) --romfsdir=$(CURDIR)/$(ROMFS)
 export APP_TITLE APP_AUTHOR APP_VERSION APP_ICON
 export ROMFS
-export UI
 
-.PHONY: all clean test
+.PHONY: all clean test nsp
 all: romfs/ca.der $(BUILD)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
@@ -77,6 +73,12 @@ $(BUILD):
 clean:
 	@rm -rf $(BUILD) $(TARGET).nro $(TARGET).elf $(TARGET).nacp
 
+# The NSP the console installs: builds the program in the devkitA64 image, then packages it with
+# hbstore-tools (needs ~/.switch/hbp.keys, so it runs on the workstation, never in CI).
+# make nsp OUT=<dir> [APP_VERSION=x.y.z]
+nsp:
+	@tools/build-nsp.sh $(if $(OUT),--out "$(OUT)") $(if $(APP_VERSION),--version "$(APP_VERSION)")
+
 # Runs on a PC, not the console: the toggle logic with a temp SD root.
 # The test binaries go to $TMPDIR when it is set (CI and the workspace point it off the /tmp RAM disk).
 TESTBIN ?= $(or $(TMPDIR),/tmp)
@@ -86,8 +88,6 @@ test:
 	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -o $(TESTBIN)/openpak_ceiling_test source/hosts.c source/policy.c source/ceiling.c \
 		source/ed25519.c source/ceiling_test.c $(shell pkg-config --cflags --libs json-c) -lcrypto && $(TESTBIN)/openpak_ceiling_test
 	@cc -DOPENPAK_HOST_TEST -o $(TESTBIN)/openpak_it_test source/installtrust.c source/installtrust_test.c && $(TESTBIN)/openpak_it_test
-	@cc -DOPENPAK_HOST_TEST -Wall -Wextra -Werror -o $(TESTBIN)/openpak_update_test source/update.c source/update_test.c \
-		&& $(TESTBIN)/openpak_update_test
 	@cc -Wall -Wextra -o $(TESTBIN)/openpak_report_test source/report.c source/report_test.c \
 		$(shell pkg-config --cflags --libs json-c) && $(TESTBIN)/openpak_report_test
 	@cc -Wall -Wextra -Werror -o $(TESTBIN)/openpak_ksp_test source/ksp.c source/ksp_test.c -lcrypto && $(TESTBIN)/openpak_ksp_test

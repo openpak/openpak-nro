@@ -107,7 +107,7 @@ static bool post(const char *meta, char *err, int errlen) {
         curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdr);
         curl_easy_setopt(c, CURLOPT_POSTFIELDS, body);
         curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)len);
-        curl_easy_setopt(c, CURLOPT_USERAGENT, "openpak-nro/" OPENPAK_VERSION);
+        curl_easy_setopt(c, CURLOPT_USERAGENT, "switch-patcher/" OPENPAK_VERSION);
         curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, discard_body);
         curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
         curl_easy_setopt(c, CURLOPT_TIMEOUT, 30L);

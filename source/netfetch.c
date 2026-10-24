@@ -2,7 +2,6 @@
 #include "netfetch.h"
 #include "ceiling.h"
 #include "hosts.h"
-#include "update.h"
 
 #include <curl/curl.h>
 #include <stdarg.h>
@@ -40,7 +39,7 @@ char *openpak_http_get(const char *url, size_t max, size_t *len, char *err, int 
     CURL *c = curl_easy_init();
     if (!c) { snprintf(err, errlen, "could not start a request"); return NULL; }
     curl_easy_setopt(c, CURLOPT_URL, url);
-    curl_easy_setopt(c, CURLOPT_USERAGENT, "openpak-nro/" OPENPAK_VERSION);
+    curl_easy_setopt(c, CURLOPT_USERAGENT, "switch-patcher/" OPENPAK_VERSION);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, collect);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &b);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 2L);
@@ -139,12 +138,6 @@ void openpak_network_refresh(char *note, int notelen) {
         logline(log, "profile not fetched (%s); keeping the saved copy", err);
         snprintf(note, notelen, "Could not reach openpak.org: using the saved OpenPak network rules.");
     }
-
-    // While the socket is up: is there a newer build of this tool? Asked only — the download
-    // happens if the user accepts the offer the interface then shows.
-    char release[256] = "";
-    openpak_update_check(release, sizeof(release));
-    if (release[0]) logline(log, "%s", release);
 
     curl_global_cleanup();
     socketExit();
