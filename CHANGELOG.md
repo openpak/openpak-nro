@@ -1,7 +1,26 @@
-# Changelog — openpak-nro
+# Changelog — OpenPak Switch Patcher (openpak-nro until 2026-10-24)
 
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
+
+## Unreleased — OpenPak Switch Patcher, NSP only
+
+- The app is now **OpenPak Switch Patcher**: the NACP name, the HOME menu, the title bar and
+  the eShop listing. Repository `openpak/switch-patcher` (was `openpak/openpak-nro`).
+- NSP only. Releases no longer carry `openpak.nro` or `openpak-console.nro`; the text-mode
+  build (`make UI=console`, `main_console.c`) is gone. NRO installs from earlier releases
+  stay where they are and are not updated.
+- The GitHub self-updater (`source/update.c`) is removed: updates come from the OpenPak
+  eShop as the update of title `01FE000000000000`.
+- First install: `OpenPak-Switch-Patcher-Boot-<tag>.zip` (new, `tools/build-boot-zip.py`)
+  puts OpenPak's boot package and a hekate *More configs* entry on the card so the NSP can
+  start; then `OpenPak-Switch-Patcher-<tag>.nsp` is installed with an NSP installer.
+- Requests identify as `switch-patcher/<version>` (was `openpak-nro/<version>`); failure
+  reports still say `"source": "nro"`.
+- Build: the program is `switch-patcher.nro`; `make nsp` (workstation only) wraps it with
+  hbstore-tools. CI builds and tests it, keeps it as the run artifact `switch-patcher-nro`
+  for NSP packaging, and attaches the boot zip.
+- Not yet released: also carries the Atmosphère 1.12.1 boot package move (b89871f, 1e071de).
 
 ## v0.3.27 — 2026-10-16 (hosts updater: new games arrive without the app)
 

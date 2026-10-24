@@ -1,6 +1,41 @@
-# openpak.nro
+# OpenPak Switch Patcher
 
-Switches a CFW Nintendo Switch between Nintendo's servers and OpenPak's, and back.
+Switches a CFW Nintendo Switch between Nintendo's servers and OpenPak's, and back. It is a
+HOME menu title (`01FE000000000000`, shown as **OpenPak Switch Patcher**), shipped as an NSP
+only and updated through the OpenPak eShop. Releases carry no NRO: the `openpak.nro` /
+`openpak-console.nro` builds and their GitHub self-updater ended with v0.3.27, and an NRO
+install from those releases does not update itself any more.
+
+## First install
+
+A stock Atmosphère console cannot launch the NSP yet: its program id is in OpenPak's `0x01FE…`
+store range with a self-signed ACID and NCA header, which only OpenPak's boot package accepts
+([docs/install-trust.md](docs/install-trust.md)). The app is what normally installs that
+package, so a first install starts from the boot zip on the same release:
+
+1. Needs hekate, the official **Atmosphère 1.12.1** in `/atmosphere/package3` and firmware
+   22.5.0, 23.0.0 or 23.0.1.
+2. Extract `OpenPak-Switch-Patcher-Boot-<tag>.zip` onto the SD card root. It adds
+   `/atmosphere/package3-openpak` (byte for byte what the app's OpenPak selection builds from
+   that official package), `/bootloader/ini/openpak.ini` (hekate entries **OpenPak (emuMMC)**
+   and **OpenPak (sysMMC)** under *More configs*) and its Atmosphère source notes under
+   `/switch/openpak/boot-package/`. `hekate_ipl.ini` is not touched.
+3. Boot **OpenPak (emuMMC)** from hekate's *More configs*.
+4. Install `OpenPak-Switch-Patcher-<tag>.nsp` with an NSP installer (DBI, Goldleaf, Tinfoil
+   and the like; it is a plain no-rights-ID application, no ticket).
+5. Start **OpenPak Switch Patcher** from HOME and select **OpenPak**: from then on your own
+   hekate entries boot OpenPak's package, and the bootstrap entry can be deleted.
+
+Why not install the NSP without the zip: on stock Atmosphère the install goes through but the
+title cannot start (FS rejects the NCA header signature, Loader the ACID). A console whose
+sigpatches also patch Loader's ACID check (sys-patch does) may start it anyway; that is not a
+supported path. `tools/build-boot-zip.py` builds the zip (no keys needed; CI attaches it).
+
+## Updates
+
+Updates come from the OpenPak eShop: the store serves each release as the update
+`01fe000000000800` of the same title, and HOME offers it like any other software update.
+There is no in-app update check.
 
 **Enable** writes a marked block of `dns_mitm` host rules into
 `/atmosphere/hosts/default.txt` and `/atmosphere/hosts/emummc.txt`, pointing the domain
@@ -69,7 +104,7 @@ OpenPak serves nothing on. It used to be listed and deliberately off. The family
 now, so those requests fail to connect instead of failing against Blizzard — the same
 trade every other unserved name under a claimed family makes.
 
-Nothing else is needed on the console. The certificate this NRO already installs into the ssl
+Nothing else is needed on the console. The certificate this app already installs into the ssl
 sysmodule covers geo, telemetry, account and the gateway, because the title puts all four
 through `nn::ssl`. It does **not** cover the game-server connection: that one leg is handled
 inside the game by bgs-sdk's own bundled OpenSSL with its own CA list, which no console-side
@@ -143,7 +178,7 @@ key-seed packages signed by OpenPak's saves server: hekate swaps FS's KeySeedPac
 modulus (`.rodata` `0x5550`, 256 bytes) for OpenPak's at every boot. Two edits do it:
 OpenPak's `[FS:34383ee799926340]`/`[FS:fdaf163288e10805]` sections in
 `bootloader/patches.ini` (appended; everything else in the file kept byte for byte), and
-`kip1patch=openpak_ksp` in the hekate launch entries that boot the MMC the NRO runs on (never a
+`kip1patch=openpak_ksp` in the hekate launch entries that boot the MMC the app runs on (never a
 `stock=1` entry). hekate checks the retail bytes before writing and skips any other FS, and this
 works under stock Atmosphère too. Selecting **Nintendo** removes both. Every change is logged to
 `/switch/openpak/system/save-data-cloud.log`. Starting with v0.3.22, the default build applies
@@ -160,13 +195,13 @@ recovery from a PC card reader.
 
 Selecting **OpenPak** also installs `openpak-fetchd` (source: `console/openpak-fetchd`), a boot2
 sysmodule (title `01FE000000000F00`) that keeps the OpenPak block of `/atmosphere/hosts/default.txt`
-and `emummc.txt` current without opening the NRO: about 20 s after the network is up, then every
+and `emummc.txt` current without opening the app: about 20 s after the network is up, then every
 6 h of uptime, it fetches the signed ceiling and the switch profile from openpak.org, rewrites
-only the marked block and tells dns_mitm to reload. Trust is the NRO's: the ceiling must verify
+only the marked block and tells dns_mitm to reload. Trust is the app's: the ceiling must verify
 under the pinned Ed25519 key, its version may never go down (floor = the higher of
-`/atmosphere/openpak-fetchd/ceiling.version` and the NRO's `/switch/openpak/ceiling.version`), a
+`/atmosphere/openpak-fetchd/ceiling.version` and the app's `/switch/openpak/ceiling.version`), a
 host outside the signed families is dropped, and a failed fetch or check changes nothing. It never
-creates a block: the NRO writes the hosts files first (the NRO is authoritative on select), fetchd
+creates a block: the app writes the hosts files first (the app is authoritative on select), fetchd
 only refreshes what is there, and keeps the previous file as `<file>.openpak-prev`.
 
 Files written on select, in this order, nothing else, and only when `romfs:/system/openpak-fetchd.nsp`
@@ -184,38 +219,21 @@ log or `dry-block.txt` once more before it; it cannot recreate a hosts block. Th
 built by `tools/build-fetchd.sh` (devkitA64, under the build flock), which copies it to
 `romfs/system/openpak-fetchd.nsp` and records its sha256 and the source tree's in
 `source/fetchd_asset.h`; `--check` verifies both. `tools/test-system.py` fails if nsp and header
-disagree. The NRO's "OpenPak updated the redirects, re-apply" notice is not shown while fetchd is
+disagree. The app's "OpenPak updated the redirects, re-apply" notice is not shown while fetchd is
 installed, armed and its log was touched in the last 12 h (it is then keeping the block current).
-
-## Updating itself
-
-At launch, while the network is up for the ceiling fetch, the tool asks GitHub for the newest
-release of this repository. If it is ahead of the running build the message line offers it:
-**A** Update, **B** Not now. Accepting downloads that release's `openpak.nro` (or
-`openpak-console.nro` — each build updates to its own asset), checks that what arrived is a whole NRO (header, `ASET` header, last asset ending at the end
-of the file), writes it over the file hbmenu loaded, and hands the console straight back to it, so the
-new build is running seconds later without touching the SD card in a PC. A build that cannot
-be handed over says so and asks to be reopened.
-
-Nothing is downloaded until that yes. The download URL comes off the network, so it is used
-only when it is a release asset of this repository under
-`https://github.com/openpak/openpak-nro/releases/download/`; a development build
-(`git describe`, not a tag) is never offered an update. The binary itself carries no
-signature yet — it is trusted because the transfer is HTTPS from the pinned repository and
-the bytes parse as an NRO. The two decisions (is that release newer, is that URL ours) are
-`source/update.c`, checked by `make test`.
 
 ## Failure reports
 
 When this tool fails — an install or remove that stopped (hosts, CA, patch or system
-writes), a display that will not start, a crash of the NRO itself — it saves a small
+writes), a display that will not start, a crash of the app itself — it saves a small
 report under `/switch/openpak/reports/` (at most 8; the oldest go first) and asks before
 sending it to `https://openpak.org/api/v1/crash-reports`: **A** Send, **B** Don't send,
 **X** Always, **Y** Never. Always/Never are remembered in `/switch/openpak/reports.txt`
 (`always`, `never` or `ask`). A report saved by an earlier run, e.g. before a crash, is
 offered at the next launch. Nothing is ever sent without that yes.
 
-A report is the NRO version, firmware and Atmosphère version, what was being done and the
+A report is the app version (sent as `"source": "nro"`, the source the crash-report API
+already accepts), firmware and Atmosphère version, what was being done and the
 error text (for a crash: the exception type and the faulting offsets). No account token or
 console identifier is sent. The pure half (JSON, multipart body, queue, setting) is
 `source/report.c`, checked by `make test`; the console half is `source/crash.c`.
@@ -241,9 +259,9 @@ instead of falling through to another tool's leftovers.
 
 Not from this repository any more. The block is generated from the signed v2 platform
 bundle the release pipeline fetches and verifies, and the console reads it at runtime:
-a downloaded bundle on the SD card if there is one, otherwise the bundle this NRO
+a downloaded bundle on the SD card if there is one, otherwise the bundle this app
 shipped with, otherwise a short list compiled in as a last resort. Adding a forwarder
-is a server deploy, not a new NRO on everybody's SD card.
+is a server deploy, not a new app release.
 
 `source/hosts.c` still carries that last resort, and it is deliberately frozen. It
 mirrors what the bundle emits so that a console falling back to it does not quietly
@@ -307,20 +325,30 @@ deleted. The console is left as if this tool had never run. Nintendo's own addre
 never written down — they rotate, and DNS resolves them correctly once nothing overrides
 them.
 
-## Two builds
-
-| Build | Size | Where it runs |
-|---|---|---|
-| `openpak.nro` (default) | ~1.7 MB | Anywhere — applet mode and title takeover. Drawn straight to the framebuffer with FreeType text: no SDL, no EGL, no mesa, which is what applet mode cannot provide. |
-| `openpak-console.nro` (`UI=console`) | ~228 KB | Anywhere. Same toggle, plain text, kept as a fallback. |
-
 ## Building
 
 ```sh
-podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make
-podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make UI=console
-make test    # host-side check of the toggle logic, no console needed
+podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make   # switch-patcher.nro
+make test                     # host-side checks, no console needed
+make nsp OUT=<dir>            # workstation only: build, then wrap as the NSP (hbstore-tools)
+python3 tools/build-boot-zip.py --out <zip>   # the first-install boot zip
 ```
+
+`switch-patcher.nro` is the program inside the NSP (hbstore-tools' loader runs it from
+`/switch/.openpak/openpak.nro`, the path installed copies already use); it is not shipped on
+its own. Drawn straight to the framebuffer with FreeType text: no SDL, no EGL, no mesa.
+`make nsp` needs hbstore-tools set up and the console keys in `~/.switch/hbp.keys`; it is a
+development build without the registry-verified network bundle.
+
+## Releasing
+
+1. Tag `vX.Y.Z` and push the tag. CI tests, builds the program with the verified bundle (run
+   artifact `switch-patcher-nro`, kept 90 days), and creates the release with the boot zip and
+   the network lockfile.
+2. On the workstation, in hbstore-tools: `./run-hb.sh openpak-update vX.Y.Z` packages that
+   artifact as the eShop update and then attaches `OpenPak-Switch-Patcher-vX.Y.Z.nsp` (the base
+   NSP for first installs) to the release. `python3 hb2nsp.py openpak-nsp vX.Y.Z` attaches the
+   NSP alone.
 
 Written from scratch on libnx + SDL2 + SDL2_ttf; it ships no font, using the console's own
 shared font instead. AGPL-3.0-only.
@@ -341,10 +369,10 @@ entries automatically. A `package3-openpak` an earlier build wrote (including th
 1.11.2 ones from 0.3.1–0.3.17) is replaced; any other file there stops setup. Update the SD
 card to Atmosphère 1.12.0 first, then select OpenPak again, then update the firmware. The original package and autoboot
 selection remain untouched. No extra installation or manual boot selection is
-required. The active package can remain open while the NRO changes the boot
+required. The active package can remain open while the app changes the boot
 configuration. Unknown configurations produce a setup error.
 
-The NRO reads the console's certificates through SSL and constructs a
+The app reads the console's certificates through SSL and constructs a
 certificate-store file, replacing expired certificate 1033 with the bundled
 OpenPak CA. No Nintendo certificate archive is bundled. The original boot
 configuration and any pre-existing certificate overlay are backed up in

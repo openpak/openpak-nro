@@ -1,4 +1,14 @@
-# Next session — console/openpak-nro
+# Next session — OpenPak Switch Patcher (was openpak-nro)
+
+**2026-10-24: NSP only.** Renamed to OpenPak Switch Patcher (repo `openpak/switch-patcher`);
+no NRO assets, no self-updater, no `UI=console` build. Release = tag (CI: tests, builds,
+artifact `switch-patcher-nro`, boot zip) then `hbstore-tools/run-hb.sh openpak-update <tag>`
+(eShop update + `OpenPak-Switch-Patcher-<tag>.nsp` on the release). First install = boot zip
+then NSP (README "First install"). Open: the boot zip path (hekate `bootloader/ini` entry
+booting `package3-openpak`, then a DBI/Goldleaf install) has not been tried on hardware, and
+the 1.12.1 boot package it carries (sha256 `c1fe8113…`) is the not-yet-boot-tested 1.12.1 move.
+Build: `podman run --rm -v "$PWD":/src -w /src docker.io/devkitpro/devkita64 make`; `make nsp`.
+Everything below predates the rename; `update.c` and `main_console.c` no longer exist.
 
 Updated 2026-09-26.
 
