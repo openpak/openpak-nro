@@ -1,8 +1,14 @@
 name: release
 
-# A vX.Y.Z tag builds both NROs and publishes them as release assets, which
-# is what a console owner downloads; pushes to main build nothing. Both jobs keep
-# all intermediate files in one job so GitHub artifact storage is not needed.
+# A vX.Y.Z tag builds OpenPak Switch Patcher and creates the release; pushes to main build
+# nothing. Consoles get the app only as an NSP (eShop title 01FE000000000000), and packaging an
+# NSP needs the console keys, which never come near CI. So this workflow:
+#   - builds the program (with the registry-verified bundle) and keeps it as the run artifact
+#     `switch-patcher-nro`, which hbstore-tools' `openpak-nsp` / `openpak-update` package on the
+#     workstation. No .nro is ever a release asset: the app does not run from hbmenu any more.
+#   - builds the boot package SD zip (step 1 of a first install, no keys needed) and attaches it.
+# Artifact storage is free for a public repository; the artifact lives 90 days, and rerunning the
+# workflow on the tag rebuilds it.
 #
 # GitHub-hosted, not the n5air runners: this repository is public so the NRO can
 # self-update from its own releases, and the org runner group refuses public
@@ -117,7 +123,7 @@ jobs:
           else
             echo "no resolved bundle; building on the compiled fallback (disabled path)"
           fi
-      - name: Build both NRO variants
+      - name: Build the program
         run: |
           set -e
           # The version comes from the tag, never from the Makefile: the build container has no
@@ -125,15 +131,26 @@ jobs:
           case "$GITHUB_REF" in refs/tags/v*) VER="${GITHUB_REF#refs/tags/v}";; *) VER="dev-${GITHUB_SHA::7}";; esac
           podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
             docker.io/devkitpro/devkita64:latest make APP_VERSION="$VER"
-          podman run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
-            docker.io/devkitpro/devkita64:latest make UI=console APP_VERSION="$VER"
+      - name: Keep the program for NSP packaging
+        uses: actions/upload-artifact@v4
+        with:
+          name: switch-patcher-nro
+          path: |
+            switch-patcher.nro
+            openpak-bundle/openpak-network.lock.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Build the boot package zip
+        run: |
+          set -e
+          python3 tools/build-boot-zip.py --out "OpenPak-Switch-Patcher-Boot-${GITHUB_REF_NAME}.zip"
       - name: Publish tag assets
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          assets=(openpak.nro openpak-console.nro)
+          assets=("OpenPak-Switch-Patcher-Boot-${GITHUB_REF_NAME}.zip")
           if [ -f openpak-bundle/openpak-network.lock.json ]; then
             # 03: a certified release retains the lockfile beside the binary.
             assets+=(openpak-bundle/openpak-network.lock.json)
@@ -142,7 +159,8 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --clobber
           else
+            # The NSP (OpenPak-Switch-Patcher-<tag>.nsp) is attached from the workstation.
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --title "openpak-nro $GITHUB_REF_NAME" \
-              --notes "Copy openpak.nro to /switch/ on the SD card. openpak-console.nro is the plain-text fallback."
+              --repo "$GITHUB_REPOSITORY" --title "OpenPak Switch Patcher $GITHUB_REF_NAME" \
+              --notes "First install: copy the Boot zip to the SD card root, boot hekate's OpenPak entry (More configs), then install OpenPak-Switch-Patcher-${GITHUB_REF_NAME}.nsp with an NSP installer. Already installed: update from the OpenPak eShop. Guide: https://docs.openpak.org/players/setup/switch/"
           fi
